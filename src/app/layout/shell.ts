@@ -58,7 +58,10 @@ import { AppTopbar } from './topbar';
 
     <app-command-palette />
   `,
-  host: { class: 'block' },
+  host: {
+    class: 'block',
+    '(document:keydown.escape)': 'layout.closeMobile()',
+  },
 })
 export class AppShell {
   protected readonly layout = inject(LayoutService);

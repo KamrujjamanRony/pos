@@ -29,6 +29,10 @@ import { COMMANDS, type CommandEntry } from './navigation';
               type="text"
               class="h-14 w-full bg-transparent text-[15px] text-ink outline-none placeholder:text-faint"
               placeholder="Search screens…"
+              role="combobox"
+              aria-expanded="true"
+              [attr.aria-controls]="listId"
+              [attr.aria-activedescendant]="activeOptionId()"
               [value]="query()"
               (input)="onInput($event)"
               (keydown)="onKey($event)"
@@ -37,12 +41,13 @@ import { COMMANDS, type CommandEntry } from './navigation';
             <kbd class="rounded border border-line px-1.5 py-0.5 text-[10.5px] text-faint">esc</kbd>
           </div>
 
-          <ul class="max-h-80 overflow-y-auto p-2" role="listbox">
+          <ul [id]="listId" class="max-h-80 overflow-y-auto p-2" role="listbox" aria-label="Screens">
             @for (entry of results(); track entry.path; let i = $index) {
-              <li>
+              <li role="none">
                 <button
                   type="button"
                   role="option"
+                  [id]="listId + '-option-' + i"
                   [attr.aria-selected]="i === active()"
                   class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition"
                   [class]="i === active() ? 'bg-brand-soft' : 'hover:bg-surface-2'"
@@ -66,7 +71,7 @@ import { COMMANDS, type CommandEntry } from './navigation';
                 </button>
               </li>
             } @empty {
-              <li class="px-3 py-10 text-center text-[13px] text-faint">
+              <li role="none" class="px-3 py-10 text-center text-[13px] text-faint">
                 Nothing matches “{{ query() }}”.
               </li>
             }
@@ -83,6 +88,7 @@ export class AppCommandPalette {
   protected readonly layout = inject(LayoutService);
   private readonly router = inject(Router);
 
+  protected readonly listId = 'command-palette-results';
   protected readonly query = signal('');
   protected readonly active = signal(0);
 
@@ -93,6 +99,11 @@ export class AppCommandPalette {
       `${entry.label} ${entry.group}`.toLowerCase().includes(needle),
     ).slice(0, 20);
   });
+
+  /** Points assistive tech at the highlighted row without moving real focus. */
+  protected readonly activeOptionId = computed(() =>
+    this.results().length ? `${this.listId}-option-${this.active()}` : null,
+  );
 
   constructor() {
     effect(() => {
@@ -107,6 +118,11 @@ export class AppCommandPalette {
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
       this.layout.paletteOpen.update((open) => !open);
+      return;
+    }
+    if (event.key === 'Escape' && this.layout.paletteOpen()) {
+      event.preventDefault();
+      this.close();
     }
   }
 

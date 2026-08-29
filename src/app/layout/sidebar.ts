@@ -44,6 +44,7 @@ import { NAVIGATION, type NavSection } from './navigation';
                 <a
                   [routerLink]="section.path"
                   routerLinkActive="bg-brand-soft! text-brand-text! font-semibold"
+                  ariaCurrentWhenActive="page"
                   class="group relative flex items-center gap-3 rounded-xl px-2.5 py-2.5 text-[13.5px] text-muted transition-colors hover:bg-surface-2 hover:text-ink"
                   [attr.title]="collapsed() ? section.label : null"
                   (click)="layout.closeMobile()"
@@ -84,6 +85,7 @@ import { NAVIGATION, type NavSection } from './navigation';
                         <a
                           [routerLink]="link.path"
                           routerLinkActive="text-brand-text! font-medium before:opacity-100"
+                          ariaCurrentWhenActive="page"
                           [routerLinkActiveOptions]="{ exact: true }"
                           class="relative block rounded-lg px-2.5 py-1.75 text-[13px] text-muted transition-colors before:absolute before:top-1/2 before:-left-3.25 before:h-4 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-brand before:opacity-0 before:transition-opacity hover:bg-surface-2 hover:text-ink"
                           (click)="layout.closeMobile()"

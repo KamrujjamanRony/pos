@@ -442,7 +442,10 @@ interface CartLine extends SalesDetail {
       </div>
     }
   `,
-  host: { class: 'block' },
+  host: {
+    class: 'block',
+    '(document:keydown.escape)': 'lastInvoice.set(null)',
+  },
 })
 export class PosTerminalPage {
   private readonly api = inject(PosApi);

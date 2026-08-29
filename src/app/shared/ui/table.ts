@@ -1,5 +1,13 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, TemplateRef, computed, input, output, signal } from '@angular/core';
+import {
+  Component,
+  TemplateRef,
+  computed,
+  input,
+  linkedSignal,
+  output,
+  signal,
+} from '@angular/core';
 import { money, prettyDate, qty } from '../../core/util/format';
 import { UiIcon } from './icon';
 import { UiEmpty, UiSkeleton, type Tone } from './primitives';
@@ -84,6 +92,7 @@ type SortDirection = 'asc' | 'desc';
                   [attr.tabindex]="clickable() ? 0 : null"
                   (click)="clickable() && rowClick.emit(row)"
                   (keydown.enter)="clickable() && rowClick.emit(row)"
+                  (keydown.space)="clickable() && activateRow($event, row)"
                 >
                   @for (column of columns(); track column.key) {
                     <td [class]="cellClass(column)">
@@ -209,7 +218,6 @@ export class UiTable<T> {
 
   protected readonly sortKey = signal<string | null>(null);
   protected readonly sortDir = signal<SortDirection>('asc');
-  protected readonly page = signal(1);
 
   protected readonly money = money;
   protected readonly qty = qty;
@@ -246,14 +254,24 @@ export class UiTable<T> {
     Math.max(1, Math.ceil(this.sorted().length / this.pageSize())),
   );
 
+  /**
+   * Follows the row set: filtering down to fewer pages pulls the current page
+   * back into range instead of stranding the pager on a page that no longer
+   * exists — which left no button highlighted and "Next" wrongly enabled.
+   */
+  protected readonly page = linkedSignal<number, number>({
+    source: () => this.totalPages(),
+    computation: (totalPages, previous) =>
+      Math.min(Math.max(previous?.value ?? 1, 1), totalPages),
+  });
+
   protected readonly paged = computed(() => {
-    const current = Math.min(this.page(), this.totalPages());
-    const start = (current - 1) * this.pageSize();
+    const start = (this.page() - 1) * this.pageSize();
     return this.sorted().slice(start, start + this.pageSize());
   });
 
   protected readonly rangeStart = computed(() =>
-    this.sorted().length ? (Math.min(this.page(), this.totalPages()) - 1) * this.pageSize() + 1 : 0,
+    this.sorted().length ? (this.page() - 1) * this.pageSize() + 1 : 0,
   );
   protected readonly rangeEnd = computed(() =>
     Math.min(this.rangeStart() + this.pageSize() - 1, this.sorted().length),
@@ -262,10 +280,15 @@ export class UiTable<T> {
   /** A sliding window of at most five page buttons around the current page. */
   protected readonly pageWindow = computed(() => {
     const total = this.totalPages();
-    const current = Math.min(this.page(), total);
-    const start = Math.max(1, Math.min(current - 2, total - 4));
+    const start = Math.max(1, Math.min(this.page() - 2, total - 4));
     return Array.from({ length: Math.min(5, total) }, (_, i) => start + i);
   });
+
+  /** Space activates a focused row, as it would on a button. */
+  protected activateRow(event: Event, row: T): void {
+    event.preventDefault();
+    this.rowClick.emit(row);
+  }
 
   protected toggleSort(key: string): void {
     if (this.sortKey() === key) {

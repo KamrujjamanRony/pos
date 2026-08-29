@@ -28,9 +28,10 @@ const SIZES = {
   template: `
     <dialog
       #dialog
-      class="m-0 max-h-none max-w-none bg-transparent p-0 text-ink backdrop:cursor-pointer"
+      class="m-0 max-h-none max-w-none bg-transparent p-0 text-ink"
       [class]="shellClass()"
       [attr.aria-label]="heading()"
+      (cancel)="onCancel($event)"
       (close)="open.set(false)"
       (click)="onBackdropClick($event)"
     >
@@ -63,6 +64,15 @@ const SIZES = {
     </dialog>
   `,
   styles: `
+    /* The layout classes above set \`display\` on the dialog, and a Tailwind
+       utility out-ranks the user-agent \`dialog:not([open]) { display: none }\`
+       rule — without this a closed dialog stays painted over the page and no
+       amount of \`.close()\` makes it go away. Component styles are unlayered,
+       so they win over Tailwind's \`@layer utilities\` whatever it emits. */
+    dialog:not([open]) {
+      display: none;
+    }
+
     dialog[open] > div {
       animation: pop 0.34s var(--ease-spring) both;
     }
@@ -75,6 +85,7 @@ const SIZES = {
       }
     }
   `,
+  host: { class: 'contents' },
 })
 export class UiModal {
   readonly open = model(false);
@@ -88,11 +99,13 @@ export class UiModal {
 
   private readonly dialog = viewChild.required<ElementRef<HTMLDialogElement>>('dialog');
 
-  protected readonly shellClass = computed(() =>
-    this.variant() === 'drawer'
-      ? 'drawer fixed inset-y-0 right-0 left-auto h-dvh w-full'
-      : 'fixed inset-0 grid h-dvh w-dvw place-items-center p-4',
-  );
+  protected readonly shellClass = computed(() => {
+    // Only advertise the click-to-dismiss affordance when it actually dismisses.
+    const backdrop = this.dismissable() ? 'backdrop:cursor-pointer' : '';
+    return this.variant() === 'drawer'
+      ? `drawer fixed inset-y-0 right-0 left-auto h-dvh w-full ${backdrop}`
+      : `fixed inset-0 grid h-dvh w-dvw place-items-center p-4 ${backdrop}`;
+  });
 
   protected readonly panelClass = computed(() => {
     const shared = 'flex flex-col bg-surface shadow-float ring-1 ring-line';
@@ -114,6 +127,15 @@ export class UiModal {
 
   close(): void {
     this.open.set(false);
+    this.dismissed.emit();
+  }
+
+  /** Escape and the platform's own dismiss gesture both land here first. */
+  protected onCancel(event: Event): void {
+    if (!this.dismissable()) {
+      event.preventDefault();
+      return;
+    }
     this.dismissed.emit();
   }
 

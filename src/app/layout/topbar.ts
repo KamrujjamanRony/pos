@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../core/auth/auth';
 import { ThemeService } from '../core/services/theme';
@@ -87,7 +87,7 @@ import { NAVIGATION } from './navigation';
       </button>
 
       <!-- Notifications -->
-      <div class="relative">
+      <div #alertsWrap class="relative">
         <button
           type="button"
           class="grid size-9 place-items-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-ink"
@@ -103,7 +103,6 @@ import { NAVIGATION } from './navigation';
         </button>
 
         @if (alertsOpen()) {
-          <div class="fixed inset-0 z-40" (click)="alertsOpen.set(false)"></div>
           <div
             class="animate-pop absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-xl border border-line bg-surface shadow-float"
           >
@@ -130,7 +129,7 @@ import { NAVIGATION } from './navigation';
       </div>
 
       <!-- Account -->
-      <div class="relative">
+      <div #accountWrap class="relative">
         <button
           type="button"
           class="flex items-center gap-2.5 rounded-xl py-1 pr-2 pl-1 transition hover:bg-surface-2"
@@ -154,7 +153,6 @@ import { NAVIGATION } from './navigation';
         </button>
 
         @if (menuOpen()) {
-          <div class="fixed inset-0 z-40" (click)="menuOpen.set(false)"></div>
           <div
             class="animate-pop absolute right-0 z-50 mt-2 w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-float"
           >
@@ -193,6 +191,10 @@ import { NAVIGATION } from './navigation';
       </div>
     </header>
   `,
+  host: {
+    '(document:click)': 'onDocumentClick($event)',
+    '(document:keydown.escape)': 'closeMenus()',
+  },
 })
 export class AppTopbar {
   protected readonly layout = inject(LayoutService);
@@ -202,6 +204,13 @@ export class AppTopbar {
   protected readonly user = this.auth.user;
   protected readonly menuOpen = signal(false);
   protected readonly alertsOpen = signal(false);
+
+  // A `fixed inset-0` click-away layer cannot live in here: the header's
+  // `glass` backdrop-filter makes it a containing block for fixed descendants,
+  // so the layer would only ever cover the header strip. Listen on the
+  // document instead and dismiss whatever the click fell outside of.
+  private readonly alertsWrap = viewChild<ElementRef<HTMLElement>>('alertsWrap');
+  private readonly accountWrap = viewChild<ElementRef<HTMLElement>>('accountWrap');
 
   protected readonly shortcutHint =
     typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
@@ -234,6 +243,21 @@ export class AppTopbar {
     }
     return trail;
   });
+
+  protected onDocumentClick(event: MouseEvent): void {
+    const target = event.target as Node;
+    if (this.alertsOpen() && !this.alertsWrap()?.nativeElement.contains(target)) {
+      this.alertsOpen.set(false);
+    }
+    if (this.menuOpen() && !this.accountWrap()?.nativeElement.contains(target)) {
+      this.menuOpen.set(false);
+    }
+  }
+
+  protected closeMenus(): void {
+    this.alertsOpen.set(false);
+    this.menuOpen.set(false);
+  }
 
   protected signOut(): void {
     this.menuOpen.set(false);

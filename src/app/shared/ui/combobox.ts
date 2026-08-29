@@ -1,4 +1,15 @@
-import { Component, computed, effect, input, model, output, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  input,
+  model,
+  output,
+  signal,
+  viewChild,
+} from '@angular/core';
+import { UiAutofocus } from '../directives/motion';
 import { UiIcon } from './icon';
 
 /**
@@ -7,17 +18,19 @@ import { UiIcon } from './icon';
  */
 @Component({
   selector: 'ui-combobox',
-  imports: [UiIcon],
+  imports: [UiAutofocus, UiIcon],
   template: `
     <div class="relative">
       <button
         type="button"
+        #trigger
         role="combobox"
         class="ctl flex items-center gap-2 text-left"
         [class.ctl-sm]="compact()"
         [class.pr-14]="showClear()"
+        aria-haspopup="listbox"
         [attr.aria-expanded]="open()"
-        [attr.aria-controls]="listId"
+        [attr.aria-controls]="open() ? listId : null"
         [attr.aria-invalid]="invalid() || null"
         [disabled]="disabled()"
         (click)="toggle()"
@@ -62,11 +75,14 @@ import { UiIcon } from './icon';
                 <ui-icon name="search" [size]="15" />
               </span>
               <input
-                #searchBox
+                uiAutofocus
                 type="text"
                 class="ctl ctl-sm pl-8"
                 [placeholder]="searchPlaceholder()"
                 [value]="query()"
+                [attr.aria-label]="searchPlaceholder()"
+                [attr.aria-controls]="listId"
+                [attr.aria-activedescendant]="activeOptionId()"
                 (input)="onQuery($event)"
                 (keydown)="onSearchKey($event)"
                 autocomplete="off"
@@ -80,6 +96,7 @@ import { UiIcon } from './icon';
                 <button
                   type="button"
                   role="option"
+                  [id]="listId + '-option-' + i"
                   class="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition"
                   [class]="
                     i === active()
@@ -100,7 +117,9 @@ import { UiIcon } from './icon';
                 </button>
               </li>
             } @empty {
-              <li class="px-3 py-6 text-center text-[13px] text-faint">No match for “{{ query() }}”</li>
+              <li role="none" class="px-3 py-6 text-center text-[13px] text-faint">
+                No match for “{{ query() }}”
+              </li>
             }
           </ul>
         </div>
@@ -132,6 +151,8 @@ export class UiCombobox<T> {
   protected readonly query = signal('');
   protected readonly active = signal(0);
 
+  private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+
   protected readonly filtered = computed(() => {
     const needle = this.query().trim().toLowerCase();
     const label = this.labelOf();
@@ -153,6 +174,11 @@ export class UiCombobox<T> {
     return match ? this.labelOf()(match) : '';
   });
 
+  /** Points assistive tech at the highlighted row without moving real focus. */
+  protected readonly activeOptionId = computed(() =>
+    this.filtered().length ? `${this.listId}-option-${this.active()}` : null,
+  );
+
   constructor() {
     effect(() => {
       if (this.open()) this.active.set(0);
@@ -169,6 +195,12 @@ export class UiCombobox<T> {
     this.open.set(false);
   }
 
+  /** Selecting or escaping hands focus back to the trigger, not to the page. */
+  private closeAndReturnFocus(): void {
+    this.close();
+    this.trigger()?.nativeElement.focus({ preventScroll: true });
+  }
+
   protected clear(event: Event): void {
     event.stopPropagation();
     this.value.set(null);
@@ -182,13 +214,19 @@ export class UiCombobox<T> {
   protected choose(option: T): void {
     this.value.set(this.keyOf()(option));
     this.selected.emit(option);
-    this.close();
+    this.closeAndReturnFocus();
   }
 
   protected onTriggerKey(event: KeyboardEvent): void {
     if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       this.open.set(true);
+      this.query.set('');
+      return;
+    }
+    if (event.key === 'Escape' && this.open()) {
+      event.preventDefault();
+      this.close();
     }
   }
 
@@ -211,6 +249,10 @@ export class UiCombobox<T> {
       }
       case 'Escape':
         event.preventDefault();
+        this.closeAndReturnFocus();
+        break;
+      case 'Tab':
+        // Focus is leaving the popup; there is nothing left to dismiss it.
         this.close();
         break;
       default:

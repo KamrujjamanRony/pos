@@ -1,6 +1,7 @@
 import { Component, computed, inject, input, model } from '@angular/core';
 import { ConfirmService } from '../../core/services/confirm';
 import { ToastService, type ToastTone } from '../../core/services/toast';
+import { UiAutofocus } from '../directives/motion';
 import { UiButton } from './button';
 import { IconName, UiIcon } from './icon';
 
@@ -43,8 +44,8 @@ const TOAST_STYLE: Record<ToastTone, { icon: IconName; ring: string; chip: strin
           <button
             type="button"
             class="grid size-6 shrink-0 place-items-center rounded text-faint transition hover:text-ink"
-            aria-label="Dismiss notification"
-            (click)="toasts.length && dismiss(toast.id)"
+            [attr.aria-label]="'Dismiss notification: ' + toast.title"
+            (click)="dismiss(toast.id)"
           >
             <ui-icon name="close" [size]="14" />
           </button>
@@ -69,18 +70,22 @@ export class UiToastHost {
 /** Renders whatever `ConfirmService` is currently asking. */
 @Component({
   selector: 'ui-confirm-host',
-  imports: [UiButton, UiIcon],
+  imports: [UiAutofocus, UiButton, UiIcon],
   template: `
     @if (request(); as pending) {
+      <!-- The backdrop is presentational; the dialog role belongs on the panel. -->
       <div
         class="animate-fade fixed inset-0 z-[110] grid place-items-center bg-black/50 p-4 backdrop-blur-sm"
-        role="dialog"
-        aria-modal="true"
-        [attr.aria-label]="pending.title"
         (click)="answer(false)"
       >
         <div
-          class="animate-pop w-full max-w-sm rounded-2xl border border-line bg-surface p-5 shadow-float"
+          uiAutofocus
+          tabindex="-1"
+          class="animate-pop w-full max-w-sm rounded-2xl border border-line bg-surface p-5 shadow-float outline-none"
+          role="alertdialog"
+          aria-modal="true"
+          [attr.aria-labelledby]="titleId"
+          [attr.aria-describedby]="messageId"
           (click)="$event.stopPropagation()"
         >
           <div class="flex items-start gap-3.5">
@@ -91,8 +96,10 @@ export class UiToastHost {
               <ui-icon [name]="pending.tone === 'danger' ? 'alert' : 'info'" [size]="19" />
             </span>
             <div class="min-w-0">
-              <h2 class="text-[15px] font-semibold text-ink">{{ pending.title }}</h2>
-              <p class="mt-1 text-[13px] leading-relaxed text-muted">{{ pending.message }}</p>
+              <h2 [id]="titleId" class="text-[15px] font-semibold text-ink">{{ pending.title }}</h2>
+              <p [id]="messageId" class="mt-1 text-[13px] leading-relaxed text-muted">
+                {{ pending.message }}
+              </p>
             </div>
           </div>
           <div class="mt-5 flex justify-end gap-2">
@@ -110,13 +117,24 @@ export class UiToastHost {
       </div>
     }
   `,
+  host: {
+    '(document:keydown.escape)': 'onEscape()',
+  },
 })
 export class UiConfirmHost {
   private readonly service = inject(ConfirmService);
   protected readonly request = this.service.pending;
 
+  protected readonly titleId = 'confirm-title';
+  protected readonly messageId = 'confirm-message';
+
   protected answer(value: boolean): void {
     this.service.answer(value);
+  }
+
+  /** Escape means "no" — the same as Cancel and as clicking the backdrop. */
+  protected onEscape(): void {
+    if (this.request()) this.answer(false);
   }
 }
 
@@ -149,7 +167,9 @@ export interface SegmentOption<T> {
           class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium whitespace-nowrap transition-colors"
           [class]="option.value === value() ? 'text-ink' : 'text-muted hover:text-ink'"
           [attr.aria-selected]="option.value === value()"
+          [attr.tabindex]="option.value === value() ? null : -1"
           (click)="value.set(option.value)"
+          (keydown)="onKey($event)"
         >
           @if (option.icon; as glyph) {
             <ui-icon [name]="glyph" [size]="15" />
@@ -169,4 +189,18 @@ export class UiSegmented<T> {
   protected readonly activeIndex = computed(() =>
     Math.max(0, this.options().findIndex((option) => option.value === this.value())),
   );
+
+  /** Arrow keys move between tabs, as the tablist pattern requires. */
+  protected onKey(event: KeyboardEvent): void {
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+
+    const options = this.options();
+    const next = (this.activeIndex() + step + options.length) % options.length;
+    this.value.set(options[next].value);
+
+    const buttons = (event.currentTarget as HTMLElement).parentElement?.querySelectorAll('button');
+    buttons?.[next]?.focus();
+  }
 }

@@ -12,10 +12,14 @@ import { PosTerminalPage } from './features/pos/pos-terminal';
 import { SalesFormPage } from './features/sales/sales-form';
 import { SalesListPage } from './features/sales/sales-list';
 import { CashBookPage } from './features/cash-bank/cash-book';
+import { SalesReturnsPage } from './features/sales/sales-returns';
+import { AppShell } from './layout/shell';
 
 /** Smoke coverage: every heavy screen must render without throwing. */
 describe('screens render', () => {
   beforeEach(() => {
+    // jsdom has no scroll implementation; the shell resets scroll on navigation.
+    Element.prototype.scrollTo ??= () => {};
     resetMockDatabase();
     TestBed.configureTestingModule({
       providers: [
@@ -59,6 +63,20 @@ describe('screens render', () => {
     const element = await render(SalesFormPage);
     expect(element.textContent).toContain('New sales invoice');
     expect(element.textContent).toContain('Settlement');
+  });
+
+  it('renders the returns screen with its editor dialog closed', async () => {
+    const element = await render(SalesReturnsPage);
+    expect(element.textContent).toContain('Sales returns');
+    // The dialog is in the DOM from the start; it must not be showing.
+    expect(element.querySelector('dialog')?.hasAttribute('open')).toBe(false);
+  });
+
+  it('renders the app chrome', async () => {
+    const element = await render(AppShell);
+    expect(element.querySelector('app-topbar')).toBeTruthy();
+    expect(element.querySelector('app-sidebar')).toBeTruthy();
+    expect(element.querySelector('app-command-palette')).toBeTruthy();
   });
 
   it('renders the cash book', async () => {
