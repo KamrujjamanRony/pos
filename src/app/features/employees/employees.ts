@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import type { Employee } from '../../core/models';
+import type { Employee, Id } from '../../core/models';
 import { Api } from '../../core/services/api';
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
@@ -118,10 +118,19 @@ import { UiStat } from '../../shared/ui/stat';
             >
               <div class="flex items-start gap-3.5">
                 <span
-                  class="grid size-12 shrink-0 place-items-center rounded-2xl text-[15px] font-semibold text-white transition-transform duration-300 group-hover:scale-105"
+                  class="grid size-12 shrink-0 place-items-center overflow-hidden rounded-2xl text-[15px] font-semibold text-white transition-transform duration-300 group-hover:scale-105"
                   [style.background]="swatch(person.employeeName)"
                 >
-                  {{ short(person.employeeName) }}
+                  @if (photoOf(person); as source) {
+                    <img
+                      [src]="source"
+                      alt=""
+                      class="size-full object-cover"
+                      (error)="onPhotoError(person.id)"
+                    />
+                  } @else {
+                    {{ short(person.employeeName) }}
+                  }
                 </span>
                 <div class="min-w-0 flex-1">
                   <div class="flex items-start justify-between gap-2">
@@ -329,14 +338,31 @@ import { UiStat } from '../../shared/ui/stat';
             (input)="presentAddress.set($any($event.target).value)"
           />
         </ui-field>
-        <ui-field label="Photo" for="e-photo" hint="Sent as PhotoFile in the multipart body.">
-          <input
-            id="e-photo"
-            type="file"
-            accept="image/*"
-            class="ctl h-auto py-1.5 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-soft file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-brand-text"
-            (change)="onPhoto($event)"
-          />
+        <ui-field
+          label="Photo"
+          for="e-photo"
+          [hint]="
+            editing()
+              ? 'Leave empty to keep the current photo.'
+              : 'Sent as PhotoFile in the multipart body.'
+          "
+        >
+          <div class="flex items-center gap-3">
+            @if (photoPreview(); as source) {
+              <img
+                [src]="source"
+                alt="Current employee photo"
+                class="size-11 shrink-0 rounded-xl border border-line object-cover"
+              />
+            }
+            <input
+              id="e-photo"
+              type="file"
+              accept="image/*"
+              class="ctl h-auto min-w-0 flex-1 py-1.5 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-soft file:px-3 file:py-1.5 file:text-[12px] file:font-medium file:text-brand-text"
+              (change)="onPhoto($event)"
+            />
+          </div>
         </ui-field>
         <ui-field label="Status" for="e-active">
           <select
@@ -491,6 +517,8 @@ export class EmployeesPage {
   protected readonly salary = signal(0);
   protected readonly isActive = signal(true);
   private readonly photo = signal<File | null>(null);
+  protected readonly photoPreview = signal<string | null>(null);
+  private readonly brokenPhotos = signal<ReadonlySet<Id>>(new Set());
 
   protected readonly documentType = signal('Certificate');
   protected readonly documentTitle = signal('');
@@ -527,11 +555,23 @@ export class EmployeesPage {
   }
 
   protected reload(): void {
+    this.brokenPhotos.set(new Set());
     void this.store.load();
   }
 
   protected swatch(name: string): string {
     return `linear-gradient(135deg, oklch(0.6 0.16 ${hueOf(name)}), oklch(0.5 0.19 ${(hueOf(name) + 45) % 360}))`;
+  }
+
+  /** Avatar photo, or null so the card falls back to the initials chip. */
+  protected photoOf(person: Employee): string | null {
+    const url = person.photoUrl?.trim();
+    return url && !this.brokenPhotos().has(person.id) ? url : null;
+  }
+
+  /** A URL that will not load is dropped, so the initials show instead. */
+  protected onPhotoError(id: Id): void {
+    this.brokenPhotos.update((ids) => new Set(ids).add(id));
   }
 
   protected openCreate(): void {
@@ -552,6 +592,7 @@ export class EmployeesPage {
     this.salary.set(0);
     this.isActive.set(true);
     this.photo.set(null);
+    this.photoPreview.set(null);
     this.editorOpen.set(true);
   }
 
@@ -573,6 +614,7 @@ export class EmployeesPage {
     this.salary.set(person.salary ?? 0);
     this.isActive.set(person.isActive);
     this.photo.set(null);
+    this.photoPreview.set(person.photoUrl?.trim() || null);
     this.editorOpen.set(true);
   }
 
@@ -584,7 +626,9 @@ export class EmployeesPage {
   }
 
   protected onPhoto(event: Event): void {
-    this.photo.set((event.target as HTMLInputElement).files?.[0] ?? null);
+    const file = (event.target as HTMLInputElement).files?.[0] ?? null;
+    this.photo.set(file);
+    if (file) this.photoPreview.set(URL.createObjectURL(file));
   }
 
   protected onDocumentFile(event: Event): void {

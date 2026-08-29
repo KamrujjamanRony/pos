@@ -779,6 +779,12 @@ function bodyOf(req: HttpRequest<unknown>): Record<string, unknown> {
     const result: Record<string, unknown> = {};
     body.forEach((value, key) => {
       const camel = key.charAt(0).toLowerCase() + key.slice(1);
+      // A real server stores the upload and answers with a URL; an object URL
+      // stands in for that here so the employee photo renders after a save.
+      if (value instanceof File && camel === 'photoFile') {
+        result['photoUrl'] = URL.createObjectURL(value);
+        return;
+      }
       result[camel] = value instanceof File ? value.name : value;
     });
     return result;
