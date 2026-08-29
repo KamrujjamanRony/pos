@@ -3,7 +3,8 @@ import type { Item, StockLedgerRow } from '../../core/models';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
-import { addDays, downloadCsv, sum, today } from '../../core/util/format';
+import { PrintService } from '../../core/services/print';
+import { addDays, dateRange, downloadCsv, sum, today } from '../../core/util/format';
 import { UiCombobox } from '../../shared/ui/combobox';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiPageHeader, type Tone } from '../../shared/ui/primitives';
@@ -39,6 +40,7 @@ const TONE_BY_TYPE: Record<string, Tone> = {
         placeholder="Item or document number…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-60">
           <label class="mb-1.5 block text-[12px] font-medium text-muted">Item</label>
@@ -79,6 +81,7 @@ const TONE_BY_TYPE: Record<string, Tone> = {
 export class StockLedgerPage {
   private readonly api = inject(PosApi);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly idOf = (row: { id: number }) => row.id;
   protected readonly itemLabel = (row: Item) => row.name;
@@ -99,7 +102,13 @@ export class StockLedgerPage {
 
   protected readonly columns: Column<StockLedgerRow>[] = [
     { key: 'date', header: 'Date', value: (row) => row.date, kind: 'date', width: '120px' },
-    { key: 'documentNo', header: 'Document', value: (row) => row.documentNo, kind: 'mono', width: '130px' },
+    {
+      key: 'documentNo',
+      header: 'Document',
+      value: (row) => row.documentNo,
+      kind: 'mono',
+      width: '130px',
+    },
     {
       key: 'documentType',
       header: 'Type',
@@ -115,8 +124,21 @@ export class StockLedgerPage {
       sub: (row) => `${row.branchName}${row.remarks ? ' · ' + row.remarks : ''}`,
     },
     { key: 'inQty', header: 'In', value: (row) => row.inQty || '', kind: 'number', align: 'right' },
-    { key: 'outQty', header: 'Out', value: (row) => row.outQty || '', kind: 'number', align: 'right' },
-    { key: 'balance', header: 'Running', value: (row) => row.balance, kind: 'number', align: 'right', hideOnMobile: true },
+    {
+      key: 'outQty',
+      header: 'Out',
+      value: (row) => row.outQty || '',
+      kind: 'number',
+      align: 'right',
+    },
+    {
+      key: 'balance',
+      header: 'Running',
+      value: (row) => row.balance,
+      kind: 'number',
+      align: 'right',
+      hideOnMobile: true,
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -150,20 +172,44 @@ export class StockLedgerPage {
     });
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Date: row.date,
+      Document: row.documentNo,
+      Type: row.documentType,
+      Item: row.itemName,
+      Branch: row.branchName,
+      In: row.inQty,
+      Out: row.outQty,
+      Balance: row.balance,
+      Remarks: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'stock-ledger',
-      this.filtered().map((row) => ({
-        Date: row.date,
-        Document: row.documentNo,
-        Type: row.documentType,
-        Item: row.itemName,
-        Branch: row.branchName,
-        In: row.inQty,
-        Out: row.outQty,
-        Balance: row.balance,
-        Remarks: row.remarks,
-      })),
-    );
+    downloadCsv('stock-ledger', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Stock ledger',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'stock-ledger',
+      landscape: true,
+      filters: [{ label: 'Search', value: this.search() || 'All movements' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            In: sum(rows, (row) => row.inQty),
+            Out: sum(rows, (row) => row.outQty),
+          },
+          emptyMessage: 'No movements in this window.',
+        },
+      ],
+    });
   }
 }

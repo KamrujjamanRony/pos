@@ -40,7 +40,9 @@ import { UiIcon } from './icon';
           />
         </div>
         <div class="w-36">
-          <label class="mb-1.5 block text-[12px] font-medium text-muted" [attr.for]="toId">To</label>
+          <label class="mb-1.5 block text-[12px] font-medium text-muted" [attr.for]="toId"
+            >To</label
+          >
           <input
             [id]="toId"
             type="date"
@@ -74,6 +76,17 @@ import { UiIcon } from './icon';
             <ui-icon name="download" [size]="16" />
           </button>
         }
+        @if (printable()) {
+          <button
+            type="button"
+            class="grid size-10 place-items-center rounded-xl border border-line bg-surface text-muted transition hover:border-brand/50 hover:text-brand-text"
+            aria-label="Print or save as PDF"
+            title="Print / save as PDF"
+            (click)="printed.emit()"
+          >
+            <ui-icon name="printer" [size]="16" />
+          </button>
+        }
         <ng-content select="[filter-actions]" />
       </div>
     </div>
@@ -86,11 +99,13 @@ export class UiFilterBar {
   readonly to = model('');
   readonly dates = input(false);
   readonly exportable = input(true);
+  readonly printable = input(true);
   readonly searchLabel = input('Search');
   readonly placeholder = input('Search records…');
 
   readonly refresh = output<void>();
   readonly exported = output<void>();
+  readonly printed = output<void>();
 
   private readonly uid = Math.random().toString(36).slice(2, 8);
   protected readonly searchId = `filter-search-${this.uid}`;

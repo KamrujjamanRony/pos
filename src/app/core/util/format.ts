@@ -112,7 +112,9 @@ export function hueOf(seed: string | null | undefined): number {
 /** Case-insensitive "does this row match the search box" test. */
 export function matches(haystack: unknown, needle: string): boolean {
   if (!needle) return true;
-  return String(haystack ?? '').toLowerCase().includes(needle.toLowerCase());
+  return String(haystack ?? '')
+    .toLowerCase()
+    .includes(needle.toLowerCase());
 }
 
 export function sum<T>(rows: readonly T[], pick: (row: T) => number): number {
@@ -147,4 +149,81 @@ export function downloadCsv(filename: string, rows: Record<string, unknown>[]): 
   link.download = filename.endsWith('.csv') ? filename : `${filename}.csv`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+const ONES = [
+  '',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+  'thirteen',
+  'fourteen',
+  'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
+];
+const TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+function underThousand(value: number): string {
+  if (value < 20) return ONES[value];
+  if (value < 100) {
+    const rest = value % 10;
+    return TENS[Math.floor(value / 10)] + (rest ? `-${ONES[rest]}` : '');
+  }
+  const rest = value % 100;
+  return `${ONES[Math.floor(value / 100)]} hundred${rest ? ` ${underThousand(rest)}` : ''}`;
+}
+
+/** Words for a whole number, on the lakh/crore scale the seed data is priced in. */
+export function numberToWords(value: number): string {
+  const whole = Math.floor(Math.abs(value));
+  if (whole === 0) return 'zero';
+
+  const groups: [number, string][] = [
+    [10000000, 'crore'],
+    [100000, 'lakh'],
+    [1000, 'thousand'],
+  ];
+
+  let rest = whole;
+  const parts: string[] = [];
+  for (const [size, name] of groups) {
+    const count = Math.floor(rest / size);
+    if (count) {
+      parts.push(`${numberToWords(count)} ${name}`);
+      rest %= size;
+    }
+  }
+  if (rest) parts.push(underThousand(rest));
+  return parts.join(' ');
+}
+
+/** "Two thousand five hundred taka and fifty poisha only" — for invoice faces. */
+export function amountInWords(value: number | null | undefined): string {
+  const amount = Math.abs(round2(Number(value ?? 0)));
+  const whole = Math.floor(amount);
+  const fraction = Math.round((amount - whole) * 100);
+  const head = `${numberToWords(whole)} taka`;
+  const tail = fraction ? ` and ${numberToWords(fraction)} poisha` : '';
+  const sign = Number(value ?? 0) < 0 ? 'minus ' : '';
+  return `${sign}${head}${tail} only`;
+}
+
+/** "01 Aug 2026 — 29 Aug 2026", for report subtitles. */
+export function dateRange(from: string | null | undefined, to: string | null | undefined): string {
+  if (!from && !to) return 'All dates';
+  if (!from) return `Up to ${prettyDate(to)}`;
+  if (!to) return `From ${prettyDate(from)}`;
+  return `${prettyDate(from)} — ${prettyDate(to)}`;
 }

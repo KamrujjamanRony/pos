@@ -6,8 +6,9 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { downloadCsv, sum, today } from '../../core/util/format';
+import { currency, downloadCsv, sum, today } from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
 import { buttonClass, UiButton } from '../../shared/ui/button';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
@@ -50,7 +51,13 @@ interface SupplierRow extends Supplier {
       </ui-page-header>
 
       <div class="grid gap-4 sm:grid-cols-3">
-        <ui-stat label="Suppliers" [value]="rows().length" format="integer" icon="inbox" [series]="1" />
+        <ui-stat
+          label="Suppliers"
+          [value]="rows().length"
+          format="integer"
+          icon="inbox"
+          [series]="1"
+        />
         <ui-stat
           label="Total payable"
           [value]="payable()"
@@ -76,6 +83,7 @@ interface SupplierRow extends Supplier {
         placeholder="Name, mobile number, address…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -98,8 +106,20 @@ interface SupplierRow extends Supplier {
         >
           <ui-icon name="list" [size]="16" />
         </a>
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit supplier" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete supplier" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit supplier"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete supplier"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -111,31 +131,78 @@ interface SupplierRow extends Supplier {
     >
       <div class="grid gap-4 sm:grid-cols-2">
         <ui-field label="Supplier name" for="s-name" [required]="true">
-          <input id="s-name" uiAutofocus type="text" class="ctl" [value]="supplierName()" (input)="supplierName.set($any($event.target).value)" />
+          <input
+            id="s-name"
+            uiAutofocus
+            type="text"
+            class="ctl"
+            [value]="supplierName()"
+            (input)="supplierName.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Mobile number" for="s-mobile">
-          <input id="s-mobile" type="tel" class="ctl" [value]="mobileNumber()" (input)="mobileNumber.set($any($event.target).value)" />
+          <input
+            id="s-mobile"
+            type="tel"
+            class="ctl"
+            [value]="mobileNumber()"
+            (input)="mobileNumber.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Opening balance" for="s-opening">
-          <input id="s-opening" type="number" step="0.01" class="ctl" [value]="openingBalance()" (input)="openingBalance.set(+$any($event.target).value || 0)" />
+          <input
+            id="s-opening"
+            type="number"
+            step="0.01"
+            class="ctl"
+            [value]="openingBalance()"
+            (input)="openingBalance.set(+$any($event.target).value || 0)"
+          />
         </ui-field>
-        <ui-field label="Direction" for="s-type" hint="Cr is the normal direction — we owe the supplier.">
-          <select id="s-type" class="ctl" [value]="openingType()" (change)="openingType.set($any($event.target).value)">
+        <ui-field
+          label="Direction"
+          for="s-type"
+          hint="Cr is the normal direction — we owe the supplier."
+        >
+          <select
+            id="s-type"
+            class="ctl"
+            [value]="openingType()"
+            (change)="openingType.set($any($event.target).value)"
+          >
             <option value="Cr">Cr — we owe the supplier</option>
             <option value="Dr">Dr — supplier owes us</option>
           </select>
         </ui-field>
         <ui-field label="Opening date" for="s-date">
-          <input id="s-date" type="date" class="ctl" [value]="openingDate()" (change)="openingDate.set($any($event.target).value)" />
+          <input
+            id="s-date"
+            type="date"
+            class="ctl"
+            [value]="openingDate()"
+            (change)="openingDate.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Address" for="s-address">
-          <input id="s-address" type="text" class="ctl" [value]="address()" (input)="address.set($any($event.target).value)" />
+          <input
+            id="s-address"
+            type="text"
+            class="ctl"
+            [value]="address()"
+            (input)="address.set($any($event.target).value)"
+          />
         </ui-field>
       </div>
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!supplierName().trim()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!supplierName().trim()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save supplier' : 'Register supplier' }}
         </ui-button>
       </div>
@@ -148,6 +215,7 @@ export class SuppliersPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly outlineButton = buttonClass('outline', 'md');
   protected readonly iconButton = buttonClass('ghost', 'icon');
@@ -192,7 +260,13 @@ export class SuppliersPage {
       align: 'right',
       hideOnMobile: true,
     },
-    { key: 'balance', header: 'Payable now', value: (row) => row.balance, kind: 'money', align: 'right' },
+    {
+      key: 'balance',
+      header: 'Payable now',
+      value: (row) => row.balance,
+      kind: 'money',
+      align: 'right',
+    },
     {
       key: 'state',
       header: 'State',
@@ -213,11 +287,12 @@ export class SuppliersPage {
   });
 
   protected readonly payable = computed(() =>
-    sum(this.rows().filter((row) => row.balance > 0), (row) => row.balance),
+    sum(
+      this.rows().filter((row) => row.balance > 0),
+      (row) => row.balance,
+    ),
   );
-  protected readonly openingTotal = computed(() =>
-    sum(this.rows(), (row) => row.openingBalance),
-  );
+  protected readonly openingTotal = computed(() => sum(this.rows(), (row) => row.openingBalance));
 
   constructor() {
     void this.reload();
@@ -268,7 +343,10 @@ export class SuppliersPage {
         this.toast.success('Supplier saved', `${payload.supplierName} was updated.`);
       } else {
         await firstValueFrom(this.api.suppliers.create(payload));
-        this.toast.success('Supplier registered', `${payload.supplierName} is ready to receive from.`);
+        this.toast.success(
+          'Supplier registered',
+          `${payload.supplierName} is ready to receive from.`,
+        );
       }
       this.editorOpen.set(false);
       await this.reload();
@@ -288,17 +366,44 @@ export class SuppliersPage {
     void this.lookups.refresh('suppliers');
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Supplier: row.supplierName,
+      Mobile: row.mobileNumber,
+      Address: row.address,
+      'Opening balance': row.openingBalance,
+      Direction: row.openingType,
+      'Payable now': row.balance,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'suppliers',
-      this.filtered().map((row) => ({
-        Supplier: row.supplierName,
-        Mobile: row.mobileNumber,
-        Address: row.address,
-        'Opening balance': row.openingBalance,
-        Direction: row.openingType,
-        'Payable now': row.balance,
-      })),
-    );
+    downloadCsv('suppliers', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Suppliers',
+      subtitle: `${rows.length} of ${this.rows().length} registered`,
+      filename: 'suppliers',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: [
+        { label: 'Suppliers', value: String(rows.length) },
+        { label: 'Total payable', value: currency(this.payable()) },
+        { label: 'Opening balances', value: currency(this.openingTotal()) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            'Opening balance': sum(rows, (row) => row.openingBalance),
+            'Payable now': sum(rows, (row) => row.balance),
+          },
+          emptyMessage: 'No suppliers match this search.',
+        },
+      ],
+    });
   }
 }

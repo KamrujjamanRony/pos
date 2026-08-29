@@ -6,6 +6,7 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { currency, downloadCsv, matches, money, round2 } from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
@@ -46,6 +47,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Search by name, code or model…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-48">
           <label class="mb-1.5 block text-[12px] font-medium text-muted" for="item-category">
@@ -92,8 +94,20 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit item" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete item" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit item"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete item"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -157,7 +171,12 @@ import { UiTable, type Column } from '../../shared/ui/table';
         </ui-field>
 
         <ui-field label="Reorder quantity" for="item-reorder" hint="Drives the reorder watchlist.">
-          <input id="item-reorder" type="number" class="ctl" [formField]="itemForm.reorderQuantity" />
+          <input
+            id="item-reorder"
+            type="number"
+            class="ctl"
+            [formField]="itemForm.reorderQuantity"
+          />
         </ui-field>
 
         <ui-field
@@ -166,7 +185,13 @@ import { UiTable, type Column } from '../../shared/ui/table';
           [required]="true"
           [error]="error('purchasePrice')"
         >
-          <input id="item-purchase" type="number" step="0.01" class="ctl" [formField]="itemForm.purchasePrice" />
+          <input
+            id="item-purchase"
+            type="number"
+            step="0.01"
+            class="ctl"
+            [formField]="itemForm.purchasePrice"
+          />
         </ui-field>
 
         <ui-field
@@ -176,11 +201,22 @@ import { UiTable, type Column } from '../../shared/ui/table';
           [error]="error('salesPrice')"
           [hint]="marginHint()"
         >
-          <input id="item-sales" type="number" step="0.01" class="ctl" [formField]="itemForm.salesPrice" />
+          <input
+            id="item-sales"
+            type="number"
+            step="0.01"
+            class="ctl"
+            [formField]="itemForm.salesPrice"
+          />
         </ui-field>
 
         <ui-field label="Description" for="item-description" class="sm:col-span-2">
-          <textarea id="item-description" class="ctl" rows="2" [formField]="itemForm.description"></textarea>
+          <textarea
+            id="item-description"
+            class="ctl"
+            rows="2"
+            [formField]="itemForm.description"
+          ></textarea>
         </ui-field>
       </form>
 
@@ -199,6 +235,7 @@ export class ItemsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly search = signal('');
   protected readonly categoryFilter = signal('');
@@ -242,7 +279,12 @@ export class ItemsPage {
       kind: 'strong',
       sub: (row) => [row.brandName, row.model].filter(Boolean).join(' · '),
     },
-    { key: 'category', header: 'Category', value: (row) => row.categoryName ?? '—', hideOnMobile: true },
+    {
+      key: 'category',
+      header: 'Category',
+      value: (row) => row.categoryName ?? '—',
+      hideOnMobile: true,
+    },
     { key: 'unit', header: 'Unit', value: (row) => row.unitName ?? '—', hideOnMobile: true },
     {
       key: 'purchasePrice',
@@ -252,22 +294,28 @@ export class ItemsPage {
       align: 'right',
       hideOnMobile: true,
     },
-    { key: 'salesPrice', header: 'Sales', value: (row) => row.salesPrice, kind: 'money', align: 'right' },
+    {
+      key: 'salesPrice',
+      header: 'Sales',
+      value: (row) => row.salesPrice,
+      kind: 'money',
+      align: 'right',
+    },
     {
       key: 'margin',
       header: 'Margin',
       value: (row) => this.marginOf(row),
       align: 'right',
       kind: 'badge',
-      tone: (row) => (this.marginValue(row) >= 15 ? 'pos' : this.marginValue(row) >= 7 ? 'warn' : 'neg'),
+      tone: (row) =>
+        this.marginValue(row) >= 15 ? 'pos' : this.marginValue(row) >= 7 ? 'warn' : 'neg',
       hideOnMobile: true,
     },
   ];
 
   protected readonly filtered = computed(() =>
     this.store.rows().filter((row) => {
-      const inCategory =
-        !this.categoryFilter() || String(row.categoryId) === this.categoryFilter();
+      const inCategory = !this.categoryFilter() || String(row.categoryId) === this.categoryFilter();
       const hit =
         matches(row.name, this.search()) ||
         matches(row.code, this.search()) ||
@@ -283,9 +331,27 @@ export class ItemsPage {
       ? rows.reduce((total, row) => total + this.marginValue(row), 0) / rows.length
       : 0;
     return [
-      { label: 'Items listed', value: String(rows.length), short: 'SKU', tone: 'brand' as const, chip: 'bg-brand-soft' },
-      { label: 'Catalogue cost', value: currency(stockValue), short: '৳', tone: 'info' as const, chip: 'bg-info-soft' },
-      { label: 'Average margin', value: `${averageMargin.toFixed(1)}%`, short: '%', tone: 'pos' as const, chip: 'bg-pos-soft' },
+      {
+        label: 'Items listed',
+        value: String(rows.length),
+        short: 'SKU',
+        tone: 'brand' as const,
+        chip: 'bg-brand-soft',
+      },
+      {
+        label: 'Catalogue cost',
+        value: currency(stockValue),
+        short: '৳',
+        tone: 'info' as const,
+        chip: 'bg-info-soft',
+      },
+      {
+        label: 'Average margin',
+        value: `${averageMargin.toFixed(1)}%`,
+        short: '%',
+        tone: 'pos' as const,
+        chip: 'bg-pos-soft',
+      },
     ];
   });
 
@@ -398,21 +464,46 @@ export class ItemsPage {
     void this.lookups.refresh('items');
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Code: row.code,
+      Name: row.name,
+      Model: row.model,
+      Category: row.categoryName,
+      Unit: row.unitName,
+      Brand: row.brandName,
+      Origin: row.originName,
+      Purchase: row.purchasePrice,
+      Sales: row.salesPrice,
+      'Reorder qty': row.reorderQuantity,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'items',
-      this.filtered().map((row) => ({
-        Code: row.code,
-        Name: row.name,
-        Model: row.model,
-        Category: row.categoryName,
-        Unit: row.unitName,
-        Brand: row.brandName,
-        Origin: row.originName,
-        Purchase: row.purchasePrice,
-        Sales: row.salesPrice,
-        'Reorder qty': row.reorderQuantity,
-      })),
-    );
+    downloadCsv('items', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const category = this.lookups
+      .categories()
+      .find((row) => String(row.id) === this.categoryFilter());
+    this.print.report({
+      title: 'Item catalogue',
+      subtitle: `${this.filtered().length} of ${this.store.rows().length} items`,
+      filename: 'items',
+      landscape: true,
+      filters: [
+        { label: 'Category', value: category?.name ?? 'All categories' },
+        { label: 'Search', value: this.search() || 'All records' },
+      ],
+      summary: this.summary().map(({ label, value }) => ({ label, value })),
+      sections: [
+        {
+          rows: this.reportRows(),
+          emptyMessage: 'No items match this search.',
+        },
+      ],
+    });
   }
 }

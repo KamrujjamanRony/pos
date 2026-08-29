@@ -5,10 +5,13 @@ import { COURIER_CONDITIONS, type SalesEntry } from '../../core/models';
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import {
   addDays,
+  amountInWords,
   currency,
+  dateRange,
   downloadCsv,
   money,
   prettyDate,
@@ -24,15 +27,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
 @Component({
   selector: 'app-sales-list',
-  imports: [
-    RouterLink,
-    UiPageHeader,
-    UiFilterBar,
-    UiTable,
-    UiButton,
-    UiModal,
-    UiIcon,
-  ],
+  imports: [RouterLink, UiPageHeader, UiFilterBar, UiTable, UiButton, UiModal, UiIcon],
   template: `
     <div class="space-y-4">
       <ui-page-header
@@ -68,6 +63,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Invoice number, customer, remarks…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-40">
           <label class="mb-1.5 block text-[12px] font-medium text-muted" for="sales-status">
@@ -100,11 +96,34 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="eye" ariaLabel="View invoice" (pressed)="openDetail(row)" />
-        <a [class]="iconButton" [routerLink]="['/sales/invoices', row.id]" aria-label="Edit invoice">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="eye"
+          ariaLabel="View invoice"
+          (pressed)="openDetail(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="printer"
+          ariaLabel="Print invoice"
+          (pressed)="printInvoice(row)"
+        />
+        <a
+          [class]="iconButton"
+          [routerLink]="['/sales/invoices', row.id]"
+          aria-label="Edit invoice"
+        >
           <ui-icon name="edit" [size]="16" />
         </a>
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete invoice" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete invoice"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -132,10 +151,26 @@ import { UiTable, type Column } from '../../shared/ui/table';
               <table class="w-full text-left text-[13px]">
                 <thead class="bg-surface-2">
                   <tr>
-                    <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Item</th>
-                    <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Qty</th>
-                    <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Rate</th>
-                    <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Amount</th>
+                    <th
+                      class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Item
+                    </th>
+                    <th
+                      class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Qty
+                    </th>
+                    <th
+                      class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Rate
+                    </th>
+                    <th
+                      class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Amount
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -166,7 +201,9 @@ import { UiTable, type Column } from '../../shared/ui/table';
             </div>
             <div class="flex justify-between">
               <dt class="text-muted">
-                Discount ({{ invoice.discountType === 'Percent' ? invoice.discount + '%' : 'flat' }})
+                Discount ({{
+                  invoice.discountType === 'Percent' ? invoice.discount + '%' : 'flat'
+                }})
               </dt>
               <dd class="num font-medium text-neg">− {{ money(discountValue(invoice)) }}</dd>
             </div>
@@ -186,7 +223,10 @@ import { UiTable, type Column } from '../../shared/ui/table';
             </div>
             <div class="flex justify-between">
               <dt class="text-muted">Due</dt>
-              <dd class="num font-semibold" [class]="(invoice.dueAmount ?? 0) > 0.5 ? 'text-warn' : 'text-pos'">
+              <dd
+                class="num font-semibold"
+                [class]="(invoice.dueAmount ?? 0) > 0.5 ? 'text-warn' : 'text-pos'"
+              >
                 {{ money(invoice.dueAmount) }}
               </dd>
             </div>
@@ -196,6 +236,11 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="detailOpen.set(false)">Close</ui-button>
+        @if (selected(); as invoice) {
+          <ui-button variant="outline" icon="printer" (pressed)="printInvoice(invoice)">
+            Print / PDF
+          </ui-button>
+        }
         <a [class]="primaryButton" [routerLink]="['/sales/invoices', selected()?.id]">
           <ui-icon name="edit" [size]="16" />
           Edit invoice
@@ -209,6 +254,7 @@ export class SalesListPage {
   private readonly api = inject(PosApi);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly currency = currency;
@@ -226,8 +272,20 @@ export class SalesListPage {
   protected readonly store = new ListStore<SalesEntry>((filter) => this.api.sales.search(filter));
 
   protected readonly columns: Column<SalesEntry>[] = [
-    { key: 'invoiceNo', header: 'Invoice', value: (row) => row.invoiceNo, kind: 'mono', width: '130px' },
-    { key: 'invoiceDate', header: 'Date', value: (row) => row.invoiceDate, kind: 'date', width: '120px' },
+    {
+      key: 'invoiceNo',
+      header: 'Invoice',
+      value: (row) => row.invoiceNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'invoiceDate',
+      header: 'Date',
+      value: (row) => row.invoiceDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'customerName',
       header: 'Customer',
@@ -243,7 +301,13 @@ export class SalesListPage {
       tone: (row) => this.courierTone(row),
       hideOnMobile: true,
     },
-    { key: 'netAmount', header: 'Net', value: (row) => row.netAmount ?? 0, kind: 'money', align: 'right' },
+    {
+      key: 'netAmount',
+      header: 'Net',
+      value: (row) => row.netAmount ?? 0,
+      kind: 'money',
+      align: 'right',
+    },
     {
       key: 'receiveAmount',
       header: 'Received',
@@ -252,7 +316,13 @@ export class SalesListPage {
       align: 'right',
       hideOnMobile: true,
     },
-    { key: 'dueAmount', header: 'Due', value: (row) => row.dueAmount ?? 0, kind: 'money', align: 'right' },
+    {
+      key: 'dueAmount',
+      header: 'Due',
+      value: (row) => row.dueAmount ?? 0,
+      kind: 'money',
+      align: 'right',
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -264,8 +334,7 @@ export class SalesListPage {
           .toLowerCase()
           .includes(needle);
       const due = (row.dueAmount ?? 0) > 0.5;
-      const statusOk =
-        this.status() === 'all' || (this.status() === 'due' ? due : !due);
+      const statusOk = this.status() === 'all' || (this.status() === 'due' ? due : !due);
       return hit && statusOk;
     });
   });
@@ -295,7 +364,8 @@ export class SalesListPage {
 
   protected courierTone(row: SalesEntry): Tone {
     if (!row.courierCondition) return 'neutral';
-    return (COURIER_CONDITIONS.find((c) => c.value === row.courierCondition)?.tone ?? 'info') as Tone;
+    return (COURIER_CONDITIONS.find((c) => c.value === row.courierCondition)?.tone ??
+      'info') as Tone;
   }
 
   protected discountValue(row: SalesEntry): number {
@@ -327,22 +397,125 @@ export class SalesListPage {
     this.toast.success('Invoice deleted', `${row.invoiceNo} was removed and stock was released.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Invoice: row.invoiceNo,
+      Date: row.invoiceDate,
+      Customer: row.customerName,
+      Branch: row.branchName,
+      Lines: row.details.length,
+      Gross: row.grossAmount,
+      Discount: this.discountValue(row),
+      Net: row.netAmount,
+      Received: row.receiveAmount,
+      Due: row.dueAmount,
+      Courier: this.courierLabel(row),
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'sales-invoices',
-      this.filtered().map((row) => ({
-        Invoice: row.invoiceNo,
-        Date: row.invoiceDate,
-        Customer: row.customerName,
-        Branch: row.branchName,
-        Lines: row.details.length,
-        Gross: row.grossAmount,
-        Discount: this.discountValue(row),
-        Net: row.netAmount,
-        Received: row.receiveAmount,
-        Due: row.dueAmount,
-        Courier: this.courierLabel(row),
-      })),
-    );
+    downloadCsv('sales-invoices', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Sales invoices',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'sales-invoices',
+      landscape: true,
+      filters: [
+        { label: 'Settlement', value: this.statusLabel() },
+        { label: 'Search', value: this.search() || 'All records' },
+      ],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Lines: sum(rows, (row) => row.details.length),
+            Gross: sum(rows, (row) => row.grossAmount ?? 0),
+            Discount: sum(rows, (row) => this.discountValue(row)),
+            Net: sum(rows, (row) => row.netAmount ?? 0),
+            Received: sum(rows, (row) => row.receiveAmount),
+            Due: sum(rows, (row) => row.dueAmount ?? 0),
+          },
+          emptyMessage: 'No invoices in this window.',
+        },
+      ],
+    });
+  }
+
+  /** The invoice itself, on a letterhead — what a customer gets handed. */
+  protected printInvoice(invoice: SalesEntry): void {
+    const discount = this.discountValue(invoice);
+    this.print.document({
+      title: 'Sales invoice',
+      documentNo: invoice.invoiceNo,
+      status: (invoice.dueAmount ?? 0) > 0.5 ? 'Due' : 'Paid',
+      filename: `invoice-${invoice.invoiceNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(invoice.invoiceDate) },
+        { label: 'Branch', value: invoice.branchName ?? '—' },
+        { label: 'Sold by', value: invoice.employeeName || '—' },
+        { label: 'Payment', value: invoice.paymentMode },
+      ],
+      parties: [
+        {
+          heading: 'Billed to',
+          lines: [invoice.customerName || 'Walk-in customer', invoice.referredName],
+        },
+        {
+          heading: 'Delivery',
+          lines: [this.courierLabel(invoice), invoice.courierName, invoice.remarks],
+        },
+      ],
+      section: {
+        columns: [
+          { key: 'Item', align: 'left' },
+          { key: 'Serial', align: 'left' },
+          { key: 'Qty', align: 'right' },
+          { key: 'Rate', align: 'right' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: invoice.details.map((line) => ({
+          Item: line.itemName ?? '—',
+          Serial: line.serialNo,
+          Qty: line.quantity,
+          Rate: line.salesPrice,
+          Amount: line.salesPrice * line.quantity,
+        })),
+        totals: {
+          Qty: sum(invoice.details, (line) => line.quantity),
+          Amount: invoice.grossAmount ?? 0,
+        },
+      },
+      totals: [
+        { label: 'Gross', value: currency(invoice.grossAmount) },
+        {
+          label: `Discount${invoice.discountType === 'Percent' ? ` (${invoice.discount}%)` : ''}`,
+          value: `− ${currency(discount)}`,
+        },
+        ...(invoice.courierCost
+          ? [{ label: 'Courier', value: currency(invoice.courierCost) }]
+          : []),
+        { label: 'Net payable', value: currency(invoice.netAmount), strong: true },
+        { label: `Received (${invoice.paymentMode})`, value: currency(invoice.receiveAmount) },
+        { label: 'Due', value: currency(invoice.dueAmount) },
+      ],
+      amountInWords: amountInWords(invoice.netAmount),
+      note: invoice.remarks || undefined,
+      signatures: ['Received by', 'For ' + (invoice.branchName ?? 'the branch')],
+    });
+  }
+
+  protected statusLabel(): string {
+    const status = this.status();
+    return status === 'due'
+      ? 'Carrying a due'
+      : status === 'settled'
+        ? 'Fully settled'
+        : 'All invoices';
   }
 }

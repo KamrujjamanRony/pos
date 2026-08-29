@@ -5,8 +5,9 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { addDays, currency, downloadCsv, sum, today } from '../../core/util/format';
+import { addDays, currency, dateRange, downloadCsv, sum, today } from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiIcon } from '../../shared/ui/icon';
@@ -45,6 +46,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Transfer number, account, reference…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -58,7 +60,13 @@ import { UiTable, type Column } from '../../shared/ui/table';
     </div>
 
     <ng-template #rowActions let-row>
-      <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete transfer" (pressed)="remove(row)" />
+      <ui-button
+        variant="ghost"
+        size="icon"
+        icon="trash"
+        ariaLabel="Delete transfer"
+        (pressed)="remove(row)"
+      />
     </ng-template>
 
     <ui-modal
@@ -69,14 +77,25 @@ import { UiTable, type Column } from '../../shared/ui/table';
     >
       <div class="space-y-4">
         <ui-field label="Transfer date" for="ft-date" [required]="true">
-          <input id="ft-date" type="date" class="ctl" [value]="transferDate()" (change)="transferDate.set($any($event.target).value)" />
+          <input
+            id="ft-date"
+            type="date"
+            class="ctl"
+            [value]="transferDate()"
+            (change)="transferDate.set($any($event.target).value)"
+          />
         </ui-field>
 
         <div class="grid items-end gap-3 sm:grid-cols-[1fr_auto_1fr]">
           <div class="space-y-3 rounded-xl border border-line bg-surface-2/50 p-3.5">
             <p class="text-[11.5px] font-semibold tracking-wide text-faint uppercase">From</p>
             <ui-field label="Mode" for="ft-from-mode">
-              <select id="ft-from-mode" class="ctl" [value]="fromMode()" (change)="onFromMode($any($event.target).value)">
+              <select
+                id="ft-from-mode"
+                class="ctl"
+                [value]="fromMode()"
+                (change)="onFromMode($any($event.target).value)"
+              >
                 <option value="Cash">Cash</option>
                 <option value="Bank">Bank</option>
               </select>
@@ -104,12 +123,21 @@ import { UiTable, type Column } from '../../shared/ui/table';
           <div class="space-y-3 rounded-xl border border-line bg-surface-2/50 p-3.5">
             <p class="text-[11.5px] font-semibold tracking-wide text-faint uppercase">To</p>
             <ui-field label="Mode" for="ft-to-mode">
-              <select id="ft-to-mode" class="ctl" [value]="toMode()" (change)="onToMode($any($event.target).value)">
+              <select
+                id="ft-to-mode"
+                class="ctl"
+                [value]="toMode()"
+                (change)="onToMode($any($event.target).value)"
+              >
                 <option value="Cash">Cash</option>
                 <option value="Bank">Bank</option>
               </select>
             </ui-field>
-            <ui-field label="Account" for="ft-to-account" [error]="sameAccount() ? 'Pick a different account.' : ''">
+            <ui-field
+              label="Account"
+              for="ft-to-account"
+              [error]="sameAccount() ? 'Pick a different account.' : ''"
+            >
               <select
                 id="ft-to-account"
                 class="ctl"
@@ -127,15 +155,35 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Amount" for="ft-amount" [required]="true">
-            <input id="ft-amount" type="number" step="0.01" class="ctl" [value]="amount()" (input)="amount.set(+$any($event.target).value || 0)" />
+            <input
+              id="ft-amount"
+              type="number"
+              step="0.01"
+              class="ctl"
+              [value]="amount()"
+              (input)="amount.set(+$any($event.target).value || 0)"
+            />
           </ui-field>
           <ui-field label="Reference" for="ft-ref" hint="Cheque or deposit slip number.">
-            <input id="ft-ref" type="text" class="ctl" [value]="referenceNo()" (input)="referenceNo.set($any($event.target).value)" />
+            <input
+              id="ft-ref"
+              type="text"
+              class="ctl"
+              [value]="referenceNo()"
+              (input)="referenceNo.set($any($event.target).value)"
+            />
           </ui-field>
         </div>
 
         <ui-field label="Remarks" for="ft-remarks">
-          <input id="ft-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" placeholder="Day-end banking…" />
+          <input
+            id="ft-remarks"
+            type="text"
+            class="ctl"
+            [value]="remarks()"
+            (input)="remarks.set($any($event.target).value)"
+            placeholder="Day-end banking…"
+          />
         </ui-field>
       </div>
 
@@ -160,6 +208,7 @@ export class FundTransfersPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly search = signal('');
   protected readonly from = signal(addDays(today(), -60));
@@ -181,8 +230,20 @@ export class FundTransfersPage {
   );
 
   protected readonly columns: Column<FundTransfer>[] = [
-    { key: 'transferNo', header: 'Transfer', value: (row) => row.transferNo, kind: 'mono', width: '130px' },
-    { key: 'transferDate', header: 'Date', value: (row) => row.transferDate, kind: 'date', width: '120px' },
+    {
+      key: 'transferNo',
+      header: 'Transfer',
+      value: (row) => row.transferNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'transferDate',
+      header: 'Date',
+      value: (row) => row.transferDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'route',
       header: 'Route',
@@ -190,7 +251,12 @@ export class FundTransfersPage {
       kind: 'strong',
       sub: (row) => `${row.fromMode} to ${row.toMode}${row.remarks ? ' · ' + row.remarks : ''}`,
     },
-    { key: 'referenceNo', header: 'Reference', value: (row) => row.referenceNo || '—', hideOnMobile: true },
+    {
+      key: 'referenceNo',
+      header: 'Reference',
+      value: (row) => row.referenceNo || '—',
+      hideOnMobile: true,
+    },
     { key: 'amount', header: 'Amount', value: (row) => row.amount, kind: 'money', align: 'right' },
   ];
 
@@ -225,7 +291,12 @@ export class FundTransfersPage {
       { label: 'Total moved', value: currency(sum(rows, (row) => row.amount)) },
       {
         label: 'Banked',
-        value: currency(sum(rows.filter((row) => row.toMode === 'Bank'), (row) => row.amount)),
+        value: currency(
+          sum(
+            rows.filter((row) => row.toMode === 'Bank'),
+            (row) => row.amount,
+          ),
+        ),
       },
     ];
   });
@@ -294,18 +365,37 @@ export class FundTransfersPage {
     this.toast.success('Transfer deleted', `${row.transferNo} was reversed.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Transfer: row.transferNo,
+      Date: row.transferDate,
+      From: `${row.fromMode} · ${row.fromAccountName}`,
+      To: `${row.toMode} · ${row.toAccountName}`,
+      Amount: row.amount,
+      Reference: row.referenceNo,
+      Remarks: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'fund-transfers',
-      this.filtered().map((row) => ({
-        Transfer: row.transferNo,
-        Date: row.transferDate,
-        From: `${row.fromMode} · ${row.fromAccountName}`,
-        To: `${row.toMode} · ${row.toAccountName}`,
-        Amount: row.amount,
-        Reference: row.referenceNo,
-        Remarks: row.remarks,
-      })),
-    );
+    downloadCsv('fund-transfers', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Fund transfers',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'fund-transfers',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: { Amount: sum(this.filtered(), (row) => row.amount) },
+          emptyMessage: 'No transfers in this window.',
+        },
+      ],
+    });
   }
 }

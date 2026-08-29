@@ -5,8 +5,17 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { addDays, clamp, downloadCsv, sum, today } from '../../core/util/format';
+import {
+  addDays,
+  clamp,
+  dateRange,
+  downloadCsv,
+  prettyDate,
+  sum,
+  today,
+} from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
@@ -66,6 +75,7 @@ let lineSeed = 0;
         placeholder="Transfer number, branch, remarks…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -79,7 +89,22 @@ let lineSeed = 0;
     </div>
 
     <ng-template #rowActions let-row>
-      <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete transfer" (pressed)="remove(row)" />
+      <div class="flex justify-end gap-1">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="printer"
+          ariaLabel="Print transfer challan"
+          (pressed)="printChallan(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete transfer"
+          (pressed)="remove(row)"
+        />
+      </div>
     </ng-template>
 
     <ui-modal
@@ -91,10 +116,22 @@ let lineSeed = 0;
       <div class="space-y-4">
         <div class="grid gap-4 sm:grid-cols-3">
           <ui-field label="Transfer date" for="st-date" [required]="true">
-            <input id="st-date" type="date" class="ctl" [value]="transferDate()" (change)="transferDate.set($any($event.target).value)" />
+            <input
+              id="st-date"
+              type="date"
+              class="ctl"
+              [value]="transferDate()"
+              (change)="transferDate.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="From branch" [required]="true">
-            <ui-combobox [options]="lookups.branches()" [labelOf]="nameOf" [keyOf]="idOf" [(value)]="fromBranchId" placeholder="Source" />
+            <ui-combobox
+              [options]="lookups.branches()"
+              [labelOf]="nameOf"
+              [keyOf]="idOf"
+              [(value)]="fromBranchId"
+              placeholder="Source"
+            />
           </ui-field>
           <ui-field label="To branch" [required]="true" [error]="branchError()">
             <ui-combobox
@@ -125,9 +162,21 @@ let lineSeed = 0;
             <table class="w-full text-left text-[13px]">
               <thead class="bg-surface-2/40">
                 <tr>
-                  <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Item</th>
-                  <th class="w-24 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Qty</th>
-                  <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Note</th>
+                  <th
+                    class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Item
+                  </th>
+                  <th
+                    class="w-24 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Qty
+                  </th>
+                  <th
+                    class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Note
+                  </th>
                   <th class="w-10 px-3 py-2"><span class="sr-only">Remove</span></th>
                 </tr>
               </thead>
@@ -141,7 +190,11 @@ let lineSeed = 0;
                         class="ctl ctl-sm text-right"
                         [value]="line.quantity"
                         [attr.aria-label]="'Quantity for ' + line.itemName"
-                        (input)="patch(line.key, { quantity: clamp(+$any($event.target).value || 0, 0, 99999) })"
+                        (input)="
+                          patch(line.key, {
+                            quantity: clamp(+$any($event.target).value || 0, 0, 99999),
+                          })
+                        "
                       />
                     </td>
                     <td class="px-3 py-2">
@@ -168,12 +221,23 @@ let lineSeed = 0;
               </tbody>
             </table>
           } @else {
-            <ui-empty title="No items on this transfer" message="Add at least one item to move." icon="box" />
+            <ui-empty
+              title="No items on this transfer"
+              message="Add at least one item to move."
+              icon="box"
+            />
           }
         </div>
 
         <ui-field label="Remarks" for="st-remarks">
-          <input id="st-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" placeholder="Branch rebalancing…" />
+          <input
+            id="st-remarks"
+            type="text"
+            class="ctl"
+            [value]="remarks()"
+            (input)="remarks.set($any($event.target).value)"
+            placeholder="Branch rebalancing…"
+          />
         </ui-field>
       </div>
 
@@ -198,6 +262,7 @@ export class StockTransfersPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly clamp = clamp;
   protected readonly nameOf = (row: { name: string }) => row.name;
@@ -224,8 +289,20 @@ export class StockTransfersPage {
   );
 
   protected readonly columns: Column<StockTransfer>[] = [
-    { key: 'transferNo', header: 'Transfer', value: (row) => row.transferNo, kind: 'mono', width: '130px' },
-    { key: 'transferDate', header: 'Date', value: (row) => row.transferDate, kind: 'date', width: '120px' },
+    {
+      key: 'transferNo',
+      header: 'Transfer',
+      value: (row) => row.transferNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'transferDate',
+      header: 'Date',
+      value: (row) => row.transferDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'route',
       header: 'Route',
@@ -233,8 +310,20 @@ export class StockTransfersPage {
       kind: 'strong',
       sub: (row) => row.remarks,
     },
-    { key: 'lines', header: 'Lines', value: (row) => row.details.length, align: 'right', hideOnMobile: true },
-    { key: 'totalQuantity', header: 'Units moved', value: (row) => row.totalQuantity ?? 0, kind: 'number', align: 'right' },
+    {
+      key: 'lines',
+      header: 'Lines',
+      value: (row) => row.details.length,
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'totalQuantity',
+      header: 'Units moved',
+      value: (row) => row.totalQuantity ?? 0,
+      kind: 'number',
+      align: 'right',
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -326,7 +415,10 @@ export class StockTransfersPage {
           postBy: 'Aman',
         }),
       );
-      this.toast.success('Transfer posted', `${saved.transferNo} moved ${saved.totalQuantity} units.`);
+      this.toast.success(
+        'Transfer posted',
+        `${saved.transferNo} moved ${saved.totalQuantity} units.`,
+      );
       this.editorOpen.set(false);
       this.reload();
     } catch {
@@ -343,18 +435,71 @@ export class StockTransfersPage {
     this.toast.success('Transfer deleted', `${row.transferNo} was reversed.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Transfer: row.transferNo,
+      Date: row.transferDate,
+      From: row.fromBranchName,
+      To: row.toBranchName,
+      Lines: row.details.length,
+      Units: row.totalQuantity,
+      Remarks: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'stock-transfers',
-      this.filtered().map((row) => ({
-        Transfer: row.transferNo,
-        Date: row.transferDate,
-        From: row.fromBranchName,
-        To: row.toBranchName,
-        Lines: row.details.length,
-        Units: row.totalQuantity,
-        Remarks: row.remarks,
-      })),
-    );
+    downloadCsv('stock-transfers', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Stock transfers',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'stock-transfers',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Lines: sum(rows, (row) => row.details.length),
+            Units: sum(rows, (row) => row.totalQuantity ?? 0),
+          },
+          emptyMessage: 'No transfers in this window.',
+        },
+      ],
+    });
+  }
+
+  /** The challan that travels with the goods. */
+  protected printChallan(row: StockTransfer): void {
+    this.print.document({
+      title: 'Stock transfer challan',
+      documentNo: row.transferNo,
+      filename: `transfer-${row.transferNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(row.transferDate) },
+        { label: 'Units', value: String(row.totalQuantity) },
+      ],
+      parties: [
+        { heading: 'From branch', lines: [row.fromBranchName] },
+        { heading: 'To branch', lines: [row.toBranchName] },
+      ],
+      section: {
+        columns: [
+          { key: 'Item', align: 'left' },
+          { key: 'Quantity', align: 'right' },
+        ],
+        rows: row.details.map((line) => ({
+          Item: line.itemName ?? '—',
+          Quantity: line.quantity,
+        })),
+        totals: { Quantity: sum(row.details, (line) => line.quantity) },
+      },
+      note: row.remarks || undefined,
+      signatures: ['Despatched by', 'Received by'],
+    });
   }
 }

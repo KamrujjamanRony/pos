@@ -5,10 +5,13 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import {
   addDays,
+  amountInWords,
   currency,
+  dateRange,
   downloadCsv,
   money,
   prettyDate,
@@ -69,6 +72,7 @@ interface Allocation extends OutstandingInvoice {
         placeholder="Receipt number, customer, reference…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -82,7 +86,22 @@ interface Allocation extends OutstandingInvoice {
     </div>
 
     <ng-template #rowActions let-row>
-      <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete receipt" (pressed)="remove(row)" />
+      <div class="flex justify-end gap-1">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="printer"
+          ariaLabel="Print receipt voucher"
+          (pressed)="printVoucher(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete receipt"
+          (pressed)="remove(row)"
+        />
+      </div>
     </ng-template>
 
     <ui-modal
@@ -94,7 +113,13 @@ interface Allocation extends OutstandingInvoice {
       <div class="space-y-4">
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Receipt date" for="rc-date" [required]="true">
-            <input id="rc-date" type="date" class="ctl" [value]="receiptDate()" (change)="receiptDate.set($any($event.target).value)" />
+            <input
+              id="rc-date"
+              type="date"
+              class="ctl"
+              [value]="receiptDate()"
+              (change)="receiptDate.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="Customer" [required]="true">
             <ui-combobox
@@ -111,10 +136,22 @@ interface Allocation extends OutstandingInvoice {
 
         <div class="grid gap-4 sm:grid-cols-3">
           <ui-field label="Amount received" for="rc-amount" [required]="true">
-            <input id="rc-amount" type="number" step="0.01" class="ctl" [value]="amount()" (input)="amount.set(+$any($event.target).value || 0)" />
+            <input
+              id="rc-amount"
+              type="number"
+              step="0.01"
+              class="ctl"
+              [value]="amount()"
+              (input)="amount.set(+$any($event.target).value || 0)"
+            />
           </ui-field>
           <ui-field label="Mode" for="rc-mode">
-            <select id="rc-mode" class="ctl" [value]="paymentMode()" (change)="onModeChange($any($event.target).value)">
+            <select
+              id="rc-mode"
+              class="ctl"
+              [value]="paymentMode()"
+              (change)="onModeChange($any($event.target).value)"
+            >
               <option value="Cash">Cash</option>
               <option value="Bank">Bank</option>
             </select>
@@ -135,7 +172,9 @@ interface Allocation extends OutstandingInvoice {
 
         @if (customerId()) {
           <div class="overflow-hidden rounded-xl border border-line">
-            <div class="flex items-center justify-between border-b border-line bg-surface-2/60 px-3.5 py-2.5">
+            <div
+              class="flex items-center justify-between border-b border-line bg-surface-2/60 px-3.5 py-2.5"
+            >
               <h3 class="text-[13px] font-semibold text-ink">Open invoices</h3>
               <ui-button variant="soft" size="sm" icon="zap" (pressed)="autoAllocate()">
                 Auto-allocate
@@ -146,16 +185,34 @@ interface Allocation extends OutstandingInvoice {
               <table class="w-full text-left text-[13px]">
                 <thead class="bg-surface-2/40">
                   <tr>
-                    <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Invoice</th>
-                    <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Date</th>
-                    <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Due</th>
-                    <th class="w-32 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Applying</th>
+                    <th
+                      class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Invoice
+                    </th>
+                    <th
+                      class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Date
+                    </th>
+                    <th
+                      class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Due
+                    </th>
+                    <th
+                      class="w-32 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Applying
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (row of allocations(); track row.documentId) {
                     <tr class="border-t border-line">
-                      <td class="px-3 py-2 font-mono text-[12.5px] text-brand-text">{{ row.documentNo }}</td>
+                      <td class="px-3 py-2 font-mono text-[12.5px] text-brand-text">
+                        {{ row.documentNo }}
+                      </td>
                       <td class="px-3 py-2 text-muted">{{ date(row.documentDate) }}</td>
                       <td class="num px-3 py-2 text-right">{{ money(row.dueAmount) }}</td>
                       <td class="px-3 py-2">
@@ -173,7 +230,9 @@ interface Allocation extends OutstandingInvoice {
                 </tbody>
               </table>
 
-              <div class="flex flex-wrap items-center justify-between gap-3 border-t border-line px-3.5 py-2.5 text-[13px]">
+              <div
+                class="flex flex-wrap items-center justify-between gap-3 border-t border-line px-3.5 py-2.5 text-[13px]"
+              >
                 <p class="text-muted">
                   Allocated
                   <span class="num ml-1 font-semibold text-ink">{{ money(allocated()) }}</span>
@@ -195,15 +254,29 @@ interface Allocation extends OutstandingInvoice {
 
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Reference" for="rc-ref" hint="Cheque or transaction number.">
-            <input id="rc-ref" type="text" class="ctl" [value]="referenceNo()" (input)="referenceNo.set($any($event.target).value)" />
+            <input
+              id="rc-ref"
+              type="text"
+              class="ctl"
+              [value]="referenceNo()"
+              (input)="referenceNo.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="Remarks" for="rc-remarks">
-            <input id="rc-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" />
+            <input
+              id="rc-remarks"
+              type="text"
+              class="ctl"
+              [value]="remarks()"
+              (input)="remarks.set($any($event.target).value)"
+            />
           </ui-field>
         </div>
 
         @if (overAllocated()) {
-          <p class="flex items-center gap-2 rounded-xl bg-neg-soft px-3.5 py-2.5 text-[13px] text-neg">
+          <p
+            class="flex items-center gap-2 rounded-xl bg-neg-soft px-3.5 py-2.5 text-[13px] text-neg"
+          >
             <ui-icon name="alert" [size]="16" />
             The allocated total is more than the amount received.
           </p>
@@ -231,6 +304,7 @@ export class ReceiptsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly date = prettyDate;
@@ -256,8 +330,20 @@ export class ReceiptsPage {
   protected readonly store = new ListStore<Receipt>((filter) => this.api.receipts.search(filter));
 
   protected readonly columns: Column<Receipt>[] = [
-    { key: 'receiptNo', header: 'Receipt', value: (row) => row.receiptNo, kind: 'mono', width: '130px' },
-    { key: 'receiptDate', header: 'Date', value: (row) => row.receiptDate, kind: 'date', width: '120px' },
+    {
+      key: 'receiptNo',
+      header: 'Receipt',
+      value: (row) => row.receiptNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'receiptDate',
+      header: 'Date',
+      value: (row) => row.receiptDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'customerName',
       header: 'Customer',
@@ -303,7 +389,12 @@ export class ReceiptsPage {
       { label: 'Collected', value: currency(sum(rows, (row) => row.amount)) },
       {
         label: 'Into bank',
-        value: currency(sum(rows.filter((row) => row.paymentMode === 'Bank'), (row) => row.amount)),
+        value: currency(
+          sum(
+            rows.filter((row) => row.paymentMode === 'Bank'),
+            (row) => row.amount,
+          ),
+        ),
       },
     ];
   });
@@ -348,9 +439,7 @@ export class ReceiptsPage {
     const applied = Math.max(0, Number(value) || 0);
     this.allocations.update((rows) =>
       rows.map((row) =>
-        row.documentId === documentId
-          ? { ...row, applied: Math.min(applied, row.dueAmount) }
-          : row,
+        row.documentId === documentId ? { ...row, applied: Math.min(applied, row.dueAmount) } : row,
       ),
     );
   }
@@ -407,18 +496,69 @@ export class ReceiptsPage {
     this.toast.success('Receipt deleted', `${row.receiptNo} was reversed.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Receipt: row.receiptNo,
+      Date: row.receiptDate,
+      Customer: row.customerName,
+      Mode: row.paymentMode,
+      Amount: row.amount,
+      Reference: row.referenceNo,
+      Remarks: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'receipts',
-      this.filtered().map((row) => ({
-        Receipt: row.receiptNo,
-        Date: row.receiptDate,
-        Customer: row.customerName,
-        Mode: row.paymentMode,
-        Amount: row.amount,
-        Reference: row.referenceNo,
-        Remarks: row.remarks,
-      })),
-    );
+    downloadCsv('receipts', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Receipts',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'receipts',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: { Amount: sum(this.filtered(), (row) => row.amount) },
+          emptyMessage: 'No receipts in this window.',
+        },
+      ],
+    });
+  }
+
+  /** The money receipt handed to the customer. */
+  protected printVoucher(row: Receipt): void {
+    this.print.document({
+      title: 'Money receipt',
+      documentNo: row.receiptNo,
+      filename: `receipt-${row.receiptNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(row.receiptDate) },
+        { label: 'Mode', value: row.paymentMode },
+        { label: 'Reference', value: row.referenceNo || '—' },
+      ],
+      parties: [{ heading: 'Received from', lines: [row.customerName || '—'] }],
+      section: {
+        heading: 'Allocated against',
+        columns: [
+          { key: 'Invoice', align: 'left' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: row.details.map((line) => ({
+          Invoice: line.invoiceNo ?? 'On account',
+          Amount: line.amount,
+        })),
+        totals: { Amount: sum(row.details, (line) => line.amount) },
+        emptyMessage: 'Held on account — not allocated to an invoice.',
+      },
+      totals: [{ label: 'Received', value: currency(row.amount), strong: true }],
+      amountInWords: amountInWords(row.amount),
+      note: row.remarks || undefined,
+      signatures: ['Paid by', 'Received by'],
+    });
   }
 }

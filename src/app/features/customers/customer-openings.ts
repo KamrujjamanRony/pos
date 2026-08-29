@@ -5,6 +5,7 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { currency, downloadCsv, sum, today } from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
@@ -42,6 +43,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Customer name or remarks…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -56,8 +58,20 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit opening" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete opening" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit opening"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete opening"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -79,25 +93,55 @@ import { UiTable, type Column } from '../../shared/ui/table';
           />
         </ui-field>
         <ui-field label="Opening date" for="co-date" [required]="true">
-          <input id="co-date" type="date" class="ctl" [value]="openingDate()" (change)="openingDate.set($any($event.target).value)" />
+          <input
+            id="co-date"
+            type="date"
+            class="ctl"
+            [value]="openingDate()"
+            (change)="openingDate.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Direction" for="co-type" [required]="true">
-          <select id="co-type" class="ctl" [value]="openingType()" (change)="openingType.set($any($event.target).value)">
+          <select
+            id="co-type"
+            class="ctl"
+            [value]="openingType()"
+            (change)="openingType.set($any($event.target).value)"
+          >
             <option value="Dr">Dr — customer owes us</option>
             <option value="Cr">Cr — we owe the customer</option>
           </select>
         </ui-field>
         <ui-field label="Amount" for="co-amount" [required]="true">
-          <input id="co-amount" type="number" step="0.01" class="ctl" [value]="amount()" (input)="amount.set(+$any($event.target).value || 0)" />
+          <input
+            id="co-amount"
+            type="number"
+            step="0.01"
+            class="ctl"
+            [value]="amount()"
+            (input)="amount.set(+$any($event.target).value || 0)"
+          />
         </ui-field>
         <ui-field label="Remarks" for="co-remarks" class="sm:col-span-2">
-          <input id="co-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" />
+          <input
+            id="co-remarks"
+            type="text"
+            class="ctl"
+            [value]="remarks()"
+            (input)="remarks.set($any($event.target).value)"
+          />
         </ui-field>
       </div>
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!customerId()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!customerId()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save opening' : 'Add opening' }}
         </ui-button>
       </div>
@@ -110,6 +154,7 @@ export class CustomerOpeningsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly idOf = (row: { id: number }) => row.id;
   protected readonly customerLabel = (row: Customer) => row.customerName;
@@ -161,8 +206,14 @@ export class CustomerOpeningsPage {
 
   protected readonly tiles = computed(() => {
     const rows = this.filtered();
-    const receivable = sum(rows.filter((row) => row.openingType === 'Dr'), (row) => row.amount);
-    const credit = sum(rows.filter((row) => row.openingType === 'Cr'), (row) => row.amount);
+    const receivable = sum(
+      rows.filter((row) => row.openingType === 'Dr'),
+      (row) => row.amount,
+    );
+    const credit = sum(
+      rows.filter((row) => row.openingType === 'Cr'),
+      (row) => row.amount,
+    );
     return [
       { label: 'Opening rows', value: String(rows.length) },
       { label: 'Opening receivable', value: currency(receivable) },
@@ -230,16 +281,35 @@ export class CustomerOpeningsPage {
     this.toast.success('Opening deleted', 'The customer ledger has been rebased.');
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Customer: row.customerName,
+      Date: row.openingDate,
+      Direction: row.openingType,
+      Amount: row.amount,
+      Remarks: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'customer-openings',
-      this.filtered().map((row) => ({
-        Customer: row.customerName,
-        Date: row.openingDate,
-        Direction: row.openingType,
-        Amount: row.amount,
-        Remarks: row.remarks,
-      })),
-    );
+    downloadCsv('customer-openings', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Customer opening balances',
+      subtitle: 'What each customer carried over from the previous book',
+      filename: 'customer-openings',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: { Amount: sum(this.filtered(), (row) => row.amount) },
+          emptyMessage: 'No opening balances recorded.',
+        },
+      ],
+    });
   }
 }

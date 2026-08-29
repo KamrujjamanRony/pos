@@ -4,8 +4,19 @@ import { firstValueFrom } from 'rxjs';
 import type { DiscountType, Item, PaymentMode, SalesDetail, SalesEntry } from '../../core/models';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { clamp, currency, hueOf, initials, money, round2, today } from '../../core/util/format';
+import {
+  amountInWords,
+  clamp,
+  currency,
+  hueOf,
+  initials,
+  money,
+  prettyDate,
+  round2,
+  today,
+} from '../../core/util/format';
 import { UiAutofocus, UiRipple } from '../../shared/directives/motion';
 import { buttonClass } from '../../shared/ui/button';
 import { UiButton } from '../../shared/ui/button';
@@ -156,7 +167,13 @@ interface CartLine extends SalesDetail {
             </p>
           </div>
           @if (lines().length) {
-            <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Clear cart" (pressed)="clear()" />
+            <ui-button
+              variant="ghost"
+              size="icon"
+              icon="trash"
+              ariaLabel="Clear cart"
+              (pressed)="clear()"
+            />
           }
         </header>
 
@@ -425,18 +442,41 @@ interface CartLine extends SalesDetail {
             </div>
             <div class="flex justify-between">
               <dt class="text-muted">Due</dt>
-              <dd class="num font-medium" [class]="(invoice.dueAmount ?? 0) > 0 ? 'text-warn' : 'text-pos'">
+              <dd
+                class="num font-medium"
+                [class]="(invoice.dueAmount ?? 0) > 0 ? 'text-warn' : 'text-pos'"
+              >
                 {{ currency(invoice.dueAmount) }}
               </dd>
             </div>
           </dl>
-          <div class="flex gap-2 border-t border-line px-5 py-3.5">
-            <a [class]="outlineButton" [routerLink]="['/sales/invoices']" class="flex-1">
-              Open invoice list
-            </a>
-            <ui-button variant="primary" [block]="true" (pressed)="lastInvoice.set(null)">
-              New sale
-            </ui-button>
+          <div class="flex flex-col gap-2 border-t border-line px-5 py-3.5">
+            <div class="flex gap-2">
+              <ui-button
+                variant="outline"
+                icon="printer"
+                [block]="true"
+                (pressed)="printReceipt(invoice)"
+              >
+                Print receipt
+              </ui-button>
+              <ui-button
+                variant="outline"
+                icon="file"
+                [block]="true"
+                (pressed)="printInvoice(invoice)"
+              >
+                A4 invoice
+              </ui-button>
+            </div>
+            <div class="flex gap-2">
+              <a [class]="outlineButton" [routerLink]="['/sales/invoices']" class="flex-1">
+                Open invoice list
+              </a>
+              <ui-button variant="primary" [block]="true" (pressed)="lastInvoice.set(null)">
+                New sale
+              </ui-button>
+            </div>
           </div>
         </div>
       </div>
@@ -450,6 +490,7 @@ interface CartLine extends SalesDetail {
 export class PosTerminalPage {
   private readonly api = inject(PosApi);
   private readonly toast = inject(ToastService);
+  private readonly print = inject(PrintService);
   protected readonly lookups = inject(Lookups);
 
   protected readonly money = money;
@@ -469,6 +510,7 @@ export class PosTerminalPage {
   protected readonly received = signal(0);
   protected readonly saving = signal(false);
   protected readonly lastInvoice = signal<SalesEntry | null>(null);
+  private readonly lastLines = signal<CartLine[]>([]);
 
   protected readonly customerLabel = (row: { customerName: string }) => row.customerName;
   protected readonly customerKey = (row: { id: number }) => row.id;
@@ -580,7 +622,9 @@ export class PosTerminalPage {
   protected setQuantity(key: string, value: string): void {
     const quantity = clamp(Number(value) || 0, 0, 9999);
     this.lines.update((lines) =>
-      lines.map((line) => (line.key === key ? { ...line, quantity } : line)).filter((line) => line.quantity > 0),
+      lines
+        .map((line) => (line.key === key ? { ...line, quantity } : line))
+        .filter((line) => line.quantity > 0),
     );
     this.syncReceived();
   }
@@ -606,6 +650,91 @@ export class PosTerminalPage {
     this.paymentMode.set(mode as PaymentMode);
   }
 
+  /** The lines as they were rung up, falling back to what the API echoed back. */
+  private receiptLines(invoice: SalesEntry) {
+    const snapshot = this.lastLines();
+    if (snapshot.length) {
+      return snapshot.map((line) => ({
+        name: line.itemName,
+        note: line.serialNo || undefined,
+        quantity: line.quantity,
+        rate: line.salesPrice,
+        amount: round2(line.salesPrice * line.quantity),
+      }));
+    }
+    return invoice.details.map((line) => ({
+      name: line.itemName ?? 'Item',
+      note: line.serialNo || undefined,
+      quantity: line.quantity,
+      rate: line.salesPrice,
+      amount: round2(line.salesPrice * line.quantity),
+    }));
+  }
+
+  /** 80mm till receipt for the customer standing at the counter. */
+  protected printReceipt(invoice: SalesEntry): void {
+    const discount = (invoice.grossAmount ?? 0) - (invoice.netAmount ?? 0) + invoice.courierCost;
+    this.print.receipt({
+      documentNo: invoice.invoiceNo,
+      filename: `receipt-${invoice.invoiceNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(invoice.invoiceDate) },
+        { label: 'Customer', value: invoice.customerName || 'Walk-in' },
+        { label: 'Payment', value: invoice.paymentMode },
+      ],
+      lines: this.receiptLines(invoice),
+      totals: [
+        { label: 'Gross', value: money(invoice.grossAmount) },
+        ...(discount > 0.005 ? [{ label: 'Discount', value: `- ${money(discount)}` }] : []),
+        ...(invoice.courierCost ? [{ label: 'Courier', value: money(invoice.courierCost) }] : []),
+        { label: 'Net', value: currency(invoice.netAmount), strong: true },
+        { label: 'Received', value: money(invoice.receiveAmount) },
+        { label: 'Due', value: money(invoice.dueAmount) },
+      ],
+    });
+  }
+
+  /** The same sale on a letterhead, for a customer who wants an A4 invoice. */
+  protected printInvoice(invoice: SalesEntry): void {
+    const discount = (invoice.grossAmount ?? 0) - (invoice.netAmount ?? 0) + invoice.courierCost;
+    this.print.document({
+      title: 'Sales invoice',
+      documentNo: invoice.invoiceNo,
+      status: (invoice.dueAmount ?? 0) > 0.5 ? 'Due' : 'Paid',
+      filename: `invoice-${invoice.invoiceNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(invoice.invoiceDate) },
+        { label: 'Branch', value: invoice.branchName ?? '—' },
+        { label: 'Payment', value: invoice.paymentMode },
+      ],
+      parties: [{ heading: 'Billed to', lines: [invoice.customerName || 'Walk-in customer'] }],
+      section: {
+        columns: [
+          { key: 'Item', align: 'left' },
+          { key: 'Qty', align: 'right' },
+          { key: 'Rate', align: 'right' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: this.receiptLines(invoice).map((line) => ({
+          Item: line.name,
+          Qty: line.quantity,
+          Rate: line.rate,
+          Amount: line.amount,
+        })),
+        totals: { Amount: invoice.grossAmount ?? 0 },
+      },
+      totals: [
+        { label: 'Gross', value: currency(invoice.grossAmount) },
+        { label: 'Discount', value: `− ${currency(discount)}` },
+        { label: 'Net payable', value: currency(invoice.netAmount), strong: true },
+        { label: 'Received', value: currency(invoice.receiveAmount) },
+        { label: 'Due', value: currency(invoice.dueAmount) },
+      ],
+      amountInWords: amountInWords(invoice.netAmount),
+      signatures: ['Received by', 'For the counter'],
+    });
+  }
+
   /** Keeps "received" tracking the payable while the cashier is still building the cart. */
   private syncReceived(): void {
     this.received.set(this.net());
@@ -614,6 +743,8 @@ export class PosTerminalPage {
   protected async checkout(): Promise<void> {
     if (!this.lines().length) return;
     this.saving.set(true);
+    // Kept for the receipt: `clear()` empties the cart the moment the sale posts.
+    const lines = this.lines();
     try {
       const payload: Partial<SalesEntry> = {
         invoiceDate: today(),
@@ -624,7 +755,7 @@ export class PosTerminalPage {
         courierNameId: null,
         courierCost: this.courierCost(),
         courierCondition: 0,
-        details: this.lines().map(({ itemId, salesPrice, quantity, serialNo }) => ({
+        details: lines.map(({ itemId, salesPrice, quantity, serialNo }) => ({
           itemId,
           salesPrice,
           quantity,
@@ -640,6 +771,7 @@ export class PosTerminalPage {
       };
       const invoice = await firstValueFrom(this.api.sales.create(payload));
       this.lastInvoice.set(invoice);
+      this.lastLines.set(lines);
       this.toast.success('Sale recorded', `${invoice.invoiceNo} · ${currency(invoice.netAmount)}`);
       this.clear();
       this.customerId.set(null);

@@ -2,7 +2,17 @@ import { Component, computed, inject, signal } from '@angular/core';
 import type { GrossProfitRow } from '../../core/models';
 import { ListStore } from '../../core/services/list-store';
 import { PosApi } from '../../core/services/pos-api';
-import { addDays, downloadCsv, percent, shortDate, sum, today } from '../../core/util/format';
+import { PrintService } from '../../core/services/print';
+import {
+  addDays,
+  currency,
+  dateRange,
+  downloadCsv,
+  percent,
+  shortDate,
+  sum,
+  today,
+} from '../../core/util/format';
 import { UiColumns, UiMeter, type Point } from '../../shared/ui/charts';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiCard, UiEmpty, UiPageHeader, UiSkeleton } from '../../shared/ui/primitives';
@@ -31,10 +41,39 @@ import { UiTable, type Column } from '../../shared/ui/table';
       />
 
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <ui-stat label="Sales" [value]="sales()" format="money" prefix="৳" icon="receipt" [series]="1" />
-        <ui-stat label="Cost of goods" [value]="cost()" format="money" prefix="৳" icon="truck" [series]="2" [upIsGood]="false" />
-        <ui-stat label="Gross profit" [value]="profit()" format="money" prefix="৳" icon="trendUp" [series]="3" [trend]="trend()" />
-        <ui-stat label="Average margin" [value]="margin()" format="percent" icon="percent" [series]="6" />
+        <ui-stat
+          label="Sales"
+          [value]="sales()"
+          format="money"
+          prefix="৳"
+          icon="receipt"
+          [series]="1"
+        />
+        <ui-stat
+          label="Cost of goods"
+          [value]="cost()"
+          format="money"
+          prefix="৳"
+          icon="truck"
+          [series]="2"
+          [upIsGood]="false"
+        />
+        <ui-stat
+          label="Gross profit"
+          [value]="profit()"
+          format="money"
+          prefix="৳"
+          icon="trendUp"
+          [series]="3"
+          [trend]="trend()"
+        />
+        <ui-stat
+          label="Average margin"
+          [value]="margin()"
+          format="percent"
+          icon="percent"
+          [series]="6"
+        />
       </div>
 
       <ui-filter-bar
@@ -46,9 +85,15 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Search by date…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
-      <ui-card heading="Profit by day" subheading="Sales less cost, per trading day" icon="chart" [padded]="false">
+      <ui-card
+        heading="Profit by day"
+        subheading="Sales less cost, per trading day"
+        icon="chart"
+        [padded]="false"
+      >
         <div card-actions class="hidden text-right sm:block">
           <p class="text-[11px] tracking-wide text-faint uppercase">Best day</p>
           <p class="text-[13px] font-semibold text-ink">{{ bestDay() }}</p>
@@ -57,14 +102,23 @@ import { UiTable, type Column } from '../../shared/ui/table';
           @if (store.loading()) {
             <ui-skeleton [count]="1" [height]="240" />
           } @else if (series().length) {
-            <ui-columns [data]="series()" [height]="250" color="var(--viz-3)" ariaLabel="Gross profit by day" />
+            <ui-columns
+              [data]="series()"
+              [height]="250"
+              color="var(--viz-3)"
+              ariaLabel="Gross profit by day"
+            />
           } @else {
             <ui-empty title="No sales in this window" icon="chart" />
           }
         </div>
       </ui-card>
 
-      <ui-card heading="Margin band" subheading="How each day's margin compares with the period average" icon="target">
+      <ui-card
+        heading="Margin band"
+        subheading="How each day's margin compares with the period average"
+        icon="target"
+      >
         @if (store.loading()) {
           <ui-skeleton [count]="5" [height]="28" />
         } @else {
@@ -102,6 +156,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
 })
 export class GrossProfitReportPage {
   private readonly api = inject(PosApi);
+  private readonly print = inject(PrintService);
 
   protected readonly date = shortDate;
   protected readonly pct = (value: number) => percent(value);
@@ -112,12 +167,27 @@ export class GrossProfitReportPage {
 
   protected readonly trackRow = (row: GrossProfitRow) => row.date;
 
-  protected readonly store = new ListStore<GrossProfitRow>((filter) => this.api.grossProfit(filter));
+  protected readonly store = new ListStore<GrossProfitRow>((filter) =>
+    this.api.grossProfit(filter),
+  );
 
   protected readonly columns: Column<GrossProfitRow>[] = [
     { key: 'date', header: 'Date', value: (row) => row.date, kind: 'date' },
-    { key: 'salesAmount', header: 'Sales', value: (row) => row.salesAmount, kind: 'money', align: 'right' },
-    { key: 'costAmount', header: 'Cost', value: (row) => row.costAmount, kind: 'money', align: 'right', hideOnMobile: true },
+    {
+      key: 'salesAmount',
+      header: 'Sales',
+      value: (row) => row.salesAmount,
+      kind: 'money',
+      align: 'right',
+    },
+    {
+      key: 'costAmount',
+      header: 'Cost',
+      value: (row) => row.costAmount,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
     { key: 'profit', header: 'Profit', value: (row) => row.profit, kind: 'money', align: 'right' },
     {
       key: 'marginPercent',
@@ -140,7 +210,11 @@ export class GrossProfitReportPage {
   protected readonly margin = computed(() =>
     this.sales() ? (this.profit() / this.sales()) * 100 : 0,
   );
-  protected readonly trend = computed(() => this.rows().slice(-12).map((row) => row.profit));
+  protected readonly trend = computed(() =>
+    this.rows()
+      .slice(-12)
+      .map((row) => row.profit),
+  );
 
   protected readonly series = computed<Point[]>(() =>
     this.rows().map((row) => ({ label: shortDate(row.date), value: row.profit })),
@@ -166,16 +240,44 @@ export class GrossProfitReportPage {
     void this.store.load({ fromDate: this.from(), toDate: this.to() });
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.rows().map((row) => ({
+      Date: row.date,
+      Sales: row.salesAmount,
+      Cost: row.costAmount,
+      Profit: row.profit,
+      'Margin %': row.marginPercent,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'gross-profit',
-      this.rows().map((row) => ({
-        Date: row.date,
-        Sales: row.salesAmount,
-        Cost: row.costAmount,
-        Profit: row.profit,
-        'Margin %': row.marginPercent,
-      })),
-    );
+    downloadCsv('gross-profit', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Gross profit',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'gross-profit',
+      filters: [{ label: 'Search', value: this.search() || 'All days' }],
+      summary: [
+        { label: 'Sales', value: currency(this.sales()) },
+        { label: 'Cost of goods', value: currency(this.cost()) },
+        { label: 'Gross profit', value: currency(this.profit()) },
+        { label: 'Average margin', value: percent(this.margin()) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Sales: this.sales(),
+            Cost: this.cost(),
+            Profit: this.profit(),
+          },
+          emptyMessage: 'No trading days in this window.',
+        },
+      ],
+    });
   }
 }

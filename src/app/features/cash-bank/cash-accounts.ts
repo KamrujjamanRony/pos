@@ -7,8 +7,9 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { currency, downloadCsv, sum, today } from '../../core/util/format';
+import { currency, downloadCsv, prettyDate, sum, today } from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
 import { UiButton } from '../../shared/ui/button';
 import { UiModal } from '../../shared/ui/modal';
@@ -36,17 +37,50 @@ interface AccountRow extends CashAccount {
   imports: [UiPageHeader, UiTable, UiButton, UiModal, UiField, UiStat, UiAutofocus],
   template: `
     <div class="space-y-4">
-      <ui-page-header [icon]="config().icon" [title]="config().title" [subtitle]="config().subtitle">
+      <ui-page-header
+        [icon]="config().icon"
+        [title]="config().title"
+        [subtitle]="config().subtitle"
+      >
+        <ui-button variant="outline" icon="download" (pressed)="exportCsv()">Export CSV</ui-button>
+        <ui-button variant="outline" icon="printer" (pressed)="printPdf()">Print / PDF</ui-button>
         <ui-button variant="primary" icon="plus" (pressed)="openCreate()">
           New {{ config().singular }}
         </ui-button>
       </ui-page-header>
 
       <div class="grid gap-4 sm:grid-cols-4">
-        <ui-stat label="Accounts" [value]="rows().length" format="integer" [icon]="config().icon" [series]="1" />
-        <ui-stat label="Opening total" [value]="openingTotal()" format="money" prefix="৳" icon="database" [series]="6" />
-        <ui-stat label="Money in" [value]="inflowTotal()" format="money" prefix="৳" icon="arrowDownRight" [series]="3" />
-        <ui-stat label="Balance now" [value]="balanceTotal()" format="money" prefix="৳" icon="wallet" [series]="1" />
+        <ui-stat
+          label="Accounts"
+          [value]="rows().length"
+          format="integer"
+          [icon]="config().icon"
+          [series]="1"
+        />
+        <ui-stat
+          label="Opening total"
+          [value]="openingTotal()"
+          format="money"
+          prefix="৳"
+          icon="database"
+          [series]="6"
+        />
+        <ui-stat
+          label="Money in"
+          [value]="inflowTotal()"
+          format="money"
+          prefix="৳"
+          icon="arrowDownRight"
+          [series]="3"
+        />
+        <ui-stat
+          label="Balance now"
+          [value]="balanceTotal()"
+          format="money"
+          prefix="৳"
+          icon="wallet"
+          [series]="1"
+        />
       </div>
 
       <ui-table
@@ -61,8 +95,20 @@ interface AccountRow extends CashAccount {
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit account" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete account" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit account"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete account"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -74,19 +120,45 @@ interface AccountRow extends CashAccount {
     >
       <div class="space-y-4">
         <ui-field label="Account name" for="ca-name" [required]="true">
-          <input id="ca-name" uiAutofocus type="text" class="ctl" [value]="name()" (input)="name.set($any($event.target).value)" />
+          <input
+            id="ca-name"
+            uiAutofocus
+            type="text"
+            class="ctl"
+            [value]="name()"
+            (input)="name.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Opening balance" for="ca-opening">
-          <input id="ca-opening" type="number" step="0.01" class="ctl" [value]="openingBalance()" (input)="openingBalance.set(+$any($event.target).value || 0)" />
+          <input
+            id="ca-opening"
+            type="number"
+            step="0.01"
+            class="ctl"
+            [value]="openingBalance()"
+            (input)="openingBalance.set(+$any($event.target).value || 0)"
+          />
         </ui-field>
         <ui-field label="Opening date" for="ca-date">
-          <input id="ca-date" type="date" class="ctl" [value]="openingDate()" (change)="openingDate.set($any($event.target).value)" />
+          <input
+            id="ca-date"
+            type="date"
+            class="ctl"
+            [value]="openingDate()"
+            (change)="openingDate.set($any($event.target).value)"
+          />
         </ui-field>
       </div>
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!name().trim()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!name().trim()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save account' : 'Create account' }}
         </ui-button>
       </div>
@@ -100,8 +172,11 @@ export class CashAccountsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
-  private readonly routeData = toSignal(this.route.data, { initialValue: this.route.snapshot.data });
+  private readonly routeData = toSignal(this.route.data, {
+    initialValue: this.route.snapshot.data,
+  });
   protected readonly config = computed(() => this.routeData() as unknown as CashAccountConfig);
 
   protected readonly editorOpen = signal(false);
@@ -132,11 +207,44 @@ export class CashAccountsPage {
 
   protected readonly columns: Column<AccountRow>[] = [
     { key: 'name', header: 'Account', value: (row) => row.name, kind: 'strong' },
-    { key: 'openingDate', header: 'Opened', value: (row) => row.openingDate, kind: 'date', hideOnMobile: true },
-    { key: 'openingBalance', header: 'Opening', value: (row) => row.openingBalance, kind: 'money', align: 'right', hideOnMobile: true },
-    { key: 'inflow', header: 'In', value: (row) => row.inflow, kind: 'money', align: 'right', hideOnMobile: true },
-    { key: 'outflow', header: 'Out', value: (row) => row.outflow, kind: 'money', align: 'right', hideOnMobile: true },
-    { key: 'balance', header: 'Balance', value: (row) => row.balance, kind: 'money', align: 'right' },
+    {
+      key: 'openingDate',
+      header: 'Opened',
+      value: (row) => row.openingDate,
+      kind: 'date',
+      hideOnMobile: true,
+    },
+    {
+      key: 'openingBalance',
+      header: 'Opening',
+      value: (row) => row.openingBalance,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'inflow',
+      header: 'In',
+      value: (row) => row.inflow,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'outflow',
+      header: 'Out',
+      value: (row) => row.outflow,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'balance',
+      header: 'Balance',
+      value: (row) => row.balance,
+      kind: 'money',
+      align: 'right',
+    },
   ];
 
   protected readonly openingTotal = computed(() => sum(this.rows(), (row) => row.openingBalance));
@@ -206,18 +314,51 @@ export class CashAccountsPage {
     void this.lookups.refresh(this.config().mode === 'Cash' ? 'cashAccounts' : 'bankAccounts');
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.rows().map((row) => ({
+      Account: row.name,
+      Opened: row.openingDate,
+      Opening: row.openingBalance,
+      In: row.inflow,
+      Out: row.outflow,
+      Balance: row.balance,
+    }));
+  }
+
+  private slug(): string {
+    return this.config().title.toLowerCase().replace(/\s+/g, '-');
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      this.config().title.toLowerCase().replace(/\s+/g, '-'),
-      this.rows().map((row) => ({
-        Account: row.name,
-        Opened: row.openingDate,
-        Opening: row.openingBalance,
-        In: row.inflow,
-        Out: row.outflow,
-        Balance: row.balance,
-      })),
-    );
+    downloadCsv(this.slug(), this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.rows();
+    this.print.report({
+      title: this.config().title,
+      subtitle: `As at ${prettyDate(today())}`,
+      filename: this.slug(),
+      summary: [
+        { label: 'Accounts', value: String(rows.length) },
+        { label: 'Opening total', value: currency(this.openingTotal()) },
+        { label: 'Money in', value: currency(this.inflowTotal()) },
+        { label: 'Balance now', value: currency(this.balanceTotal()) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Opening: this.openingTotal(),
+            In: this.inflowTotal(),
+            Out: sum(rows, (row) => row.outflow),
+            Balance: this.balanceTotal(),
+          },
+          emptyMessage: `No ${this.config().title.toLowerCase()} yet.`,
+        },
+      ],
+    });
   }
 
   protected readonly currency = currency;

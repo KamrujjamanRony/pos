@@ -6,6 +6,7 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { currency, downloadCsv, hueOf, initials, sum } from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
@@ -52,7 +53,13 @@ interface CustomerRow extends Customer {
       </ui-page-header>
 
       <div class="grid gap-4 sm:grid-cols-3">
-        <ui-stat label="Customers" [value]="rows().length" format="integer" icon="users" [series]="1" />
+        <ui-stat
+          label="Customers"
+          [value]="rows().length"
+          format="integer"
+          icon="users"
+          [series]="1"
+        />
         <ui-stat
           label="Total receivable"
           [value]="receivable()"
@@ -78,10 +85,18 @@ interface CustomerRow extends Customer {
         placeholder="Name, contact number, address…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-44">
-          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="cust-area">Area</label>
-          <select id="cust-area" class="ctl" [value]="areaFilter()" (change)="areaFilter.set($any($event.target).value)">
+          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="cust-area"
+            >Area</label
+          >
+          <select
+            id="cust-area"
+            class="ctl"
+            [value]="areaFilter()"
+            (change)="areaFilter.set($any($event.target).value)"
+          >
             <option value="">All areas</option>
             @for (area of lookups.areas(); track area.id) {
               <option [value]="area.id">{{ area.name }}</option>
@@ -111,8 +126,20 @@ interface CustomerRow extends Customer {
         >
           <ui-icon name="list" [size]="16" />
         </a>
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit customer" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete customer" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit customer"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete customer"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -124,31 +151,80 @@ interface CustomerRow extends Customer {
     >
       <div class="grid gap-4 sm:grid-cols-2">
         <ui-field label="Customer name" for="c-name" [required]="true">
-          <input id="c-name" uiAutofocus type="text" class="ctl" [value]="customerName()" (input)="customerName.set($any($event.target).value)" />
+          <input
+            id="c-name"
+            uiAutofocus
+            type="text"
+            class="ctl"
+            [value]="customerName()"
+            (input)="customerName.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Contact number" for="c-contact">
-          <input id="c-contact" type="tel" class="ctl" [value]="contactNumber()" (input)="contactNumber.set($any($event.target).value)" />
+          <input
+            id="c-contact"
+            type="tel"
+            class="ctl"
+            [value]="contactNumber()"
+            (input)="contactNumber.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Contact person" for="c-person">
-          <input id="c-person" type="text" class="ctl" [value]="contactPerson()" (input)="contactPerson.set($any($event.target).value)" />
+          <input
+            id="c-person"
+            type="text"
+            class="ctl"
+            [value]="contactPerson()"
+            (input)="contactPerson.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Contact person mobile" for="c-person-mobile">
-          <input id="c-person-mobile" type="tel" class="ctl" [value]="contactPersonMobileNo()" (input)="contactPersonMobileNo.set($any($event.target).value)" />
+          <input
+            id="c-person-mobile"
+            type="tel"
+            class="ctl"
+            [value]="contactPersonMobileNo()"
+            (input)="contactPersonMobileNo.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Area">
-          <ui-combobox [options]="lookups.areas()" [labelOf]="nameOf" [keyOf]="idOf" [(value)]="areaId" placeholder="Delivery zone" />
+          <ui-combobox
+            [options]="lookups.areas()"
+            [labelOf]="nameOf"
+            [keyOf]="idOf"
+            [(value)]="areaId"
+            placeholder="Delivery zone"
+          />
         </ui-field>
         <ui-field label="Referred by">
-          <ui-combobox [options]="lookups.referrals()" [labelOf]="nameOf" [keyOf]="idOf" [(value)]="referredId" placeholder="How did they find us?" />
+          <ui-combobox
+            [options]="lookups.referrals()"
+            [labelOf]="nameOf"
+            [keyOf]="idOf"
+            [(value)]="referredId"
+            placeholder="How did they find us?"
+          />
         </ui-field>
         <ui-field label="Address" for="c-address" class="sm:col-span-2">
-          <textarea id="c-address" class="ctl" rows="2" [value]="address()" (input)="address.set($any($event.target).value)"></textarea>
+          <textarea
+            id="c-address"
+            class="ctl"
+            rows="2"
+            [value]="address()"
+            (input)="address.set($any($event.target).value)"
+          ></textarea>
         </ui-field>
       </div>
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!customerName().trim()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!customerName().trim()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save customer' : 'Register customer' }}
         </ui-button>
       </div>
@@ -161,6 +237,7 @@ export class CustomersPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly outlineButton = buttonClass('outline', 'md');
   protected readonly iconButton = buttonClass('ghost', 'icon');
@@ -200,8 +277,18 @@ export class CustomersPage {
       kind: 'strong',
       sub: (row) => [row.contactPerson, row.areaName].filter(Boolean).join(' · '),
     },
-    { key: 'contactNumber', header: 'Contact', value: (row) => row.contactNumber, hideOnMobile: true },
-    { key: 'referredName', header: 'Referred by', value: (row) => row.referredName ?? '—', hideOnMobile: true },
+    {
+      key: 'contactNumber',
+      header: 'Contact',
+      value: (row) => row.contactNumber,
+      hideOnMobile: true,
+    },
+    {
+      key: 'referredName',
+      header: 'Referred by',
+      value: (row) => row.referredName ?? '—',
+      hideOnMobile: true,
+    },
     {
       key: 'balance',
       header: 'Balance',
@@ -233,7 +320,10 @@ export class CustomersPage {
   });
 
   protected readonly receivable = computed(() =>
-    sum(this.rows().filter((row) => row.balance > 0), (row) => row.balance),
+    sum(
+      this.rows().filter((row) => row.balance > 0),
+      (row) => row.balance,
+    ),
   );
   protected readonly withBalance = computed(
     () => this.rows().filter((row) => row.balance > 0.5).length,
@@ -315,19 +405,48 @@ export class CustomersPage {
     void this.lookups.refresh('customers');
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Customer: row.customerName,
+      Contact: row.contactNumber,
+      Person: row.contactPerson,
+      Area: row.areaName,
+      'Referred by': row.referredName,
+      Address: row.address,
+      Balance: row.balance,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'customers',
-      this.filtered().map((row) => ({
-        Customer: row.customerName,
-        Contact: row.contactNumber,
-        Person: row.contactPerson,
-        Area: row.areaName,
-        'Referred by': row.referredName,
-        Address: row.address,
-        Balance: row.balance,
-      })),
-    );
+    downloadCsv('customers', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    const area = this.lookups.areas().find((a) => String(a.id) === this.areaFilter());
+    this.print.report({
+      title: 'Customers',
+      subtitle: `${rows.length} of ${this.rows().length} registered`,
+      filename: 'customers',
+      landscape: true,
+      filters: [
+        { label: 'Area', value: area?.name ?? 'All areas' },
+        { label: 'Search', value: this.search() || 'All records' },
+      ],
+      summary: [
+        { label: 'Customers', value: String(rows.length) },
+        { label: 'Total receivable', value: currency(this.receivable()) },
+        { label: 'Carrying a balance', value: String(this.withBalance()) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: { Balance: sum(rows, (row) => row.balance ?? 0) },
+          emptyMessage: 'No customers match this search.',
+        },
+      ],
+    });
   }
 
   protected readonly currency = currency;

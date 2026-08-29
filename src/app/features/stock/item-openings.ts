@@ -5,6 +5,7 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { currency, downloadCsv, sum, today } from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
@@ -42,6 +43,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Item or branch…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -57,8 +59,20 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit opening" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete opening" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit opening"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete opening"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -81,25 +95,66 @@ import { UiTable, type Column } from '../../shared/ui/table';
           />
         </ui-field>
         <ui-field label="Branch" [required]="true">
-          <ui-combobox [options]="lookups.branches()" [labelOf]="nameOf" [keyOf]="idOf" [(value)]="branchId" placeholder="Choose a branch" />
+          <ui-combobox
+            [options]="lookups.branches()"
+            [labelOf]="nameOf"
+            [keyOf]="idOf"
+            [(value)]="branchId"
+            placeholder="Choose a branch"
+          />
         </ui-field>
         <ui-field label="Opening date" for="io-date" [required]="true">
-          <input id="io-date" type="date" class="ctl" [value]="openingDate()" (change)="openingDate.set($any($event.target).value)" />
+          <input
+            id="io-date"
+            type="date"
+            class="ctl"
+            [value]="openingDate()"
+            (change)="openingDate.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Quantity" for="io-qty" [required]="true">
-          <input id="io-qty" type="number" class="ctl" [value]="quantity()" (input)="quantity.set(+$any($event.target).value || 0)" />
+          <input
+            id="io-qty"
+            type="number"
+            class="ctl"
+            [value]="quantity()"
+            (input)="quantity.set(+$any($event.target).value || 0)"
+          />
         </ui-field>
-        <ui-field label="Rate at cost" for="io-rate" [hint]="'Opening value ' + currency(quantity() * rate())">
-          <input id="io-rate" type="number" step="0.01" class="ctl" [value]="rate()" (input)="rate.set(+$any($event.target).value || 0)" />
+        <ui-field
+          label="Rate at cost"
+          for="io-rate"
+          [hint]="'Opening value ' + currency(quantity() * rate())"
+        >
+          <input
+            id="io-rate"
+            type="number"
+            step="0.01"
+            class="ctl"
+            [value]="rate()"
+            (input)="rate.set(+$any($event.target).value || 0)"
+          />
         </ui-field>
         <ui-field label="Remarks" for="io-remarks">
-          <input id="io-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" />
+          <input
+            id="io-remarks"
+            type="text"
+            class="ctl"
+            [value]="remarks()"
+            (input)="remarks.set($any($event.target).value)"
+          />
         </ui-field>
       </div>
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!itemId() || !branchId()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!itemId() || !branchId()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save opening' : 'Add opening' }}
         </ui-button>
       </div>
@@ -112,6 +167,7 @@ export class ItemOpeningsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly currency = currency;
   protected readonly nameOf = (row: { name: string }) => row.name;
@@ -142,10 +198,35 @@ export class ItemOpeningsPage {
       sub: (row) => row.remarks,
     },
     { key: 'branchName', header: 'Branch', value: (row) => row.branchName ?? '—' },
-    { key: 'openingDate', header: 'As on', value: (row) => row.openingDate, kind: 'date', hideOnMobile: true },
-    { key: 'quantity', header: 'Quantity', value: (row) => row.quantity, kind: 'number', align: 'right' },
-    { key: 'rate', header: 'Rate', value: (row) => row.rate, kind: 'money', align: 'right', hideOnMobile: true },
-    { key: 'value', header: 'Value', value: (row) => row.quantity * row.rate, kind: 'money', align: 'right' },
+    {
+      key: 'openingDate',
+      header: 'As on',
+      value: (row) => row.openingDate,
+      kind: 'date',
+      hideOnMobile: true,
+    },
+    {
+      key: 'quantity',
+      header: 'Quantity',
+      value: (row) => row.quantity,
+      kind: 'number',
+      align: 'right',
+    },
+    {
+      key: 'rate',
+      header: 'Rate',
+      value: (row) => row.rate,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      value: (row) => row.quantity * row.rate,
+      kind: 'money',
+      align: 'right',
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -237,18 +318,41 @@ export class ItemOpeningsPage {
     this.toast.success('Opening deleted', 'The stock ledger has been rebased.');
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Item: row.itemName,
+      Branch: row.branchName,
+      Date: row.openingDate,
+      Quantity: row.quantity,
+      Rate: row.rate,
+      Value: row.quantity * row.rate,
+      Remarks: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'opening-stock',
-      this.filtered().map((row) => ({
-        Item: row.itemName,
-        Branch: row.branchName,
-        Date: row.openingDate,
-        Quantity: row.quantity,
-        Rate: row.rate,
-        Value: row.quantity * row.rate,
-        Remarks: row.remarks,
-      })),
-    );
+    downloadCsv('opening-stock', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Opening stock',
+      subtitle: 'What each item carried into this book',
+      filename: 'opening-stock',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Quantity: sum(rows, (row) => row.quantity),
+            Value: sum(rows, (row) => row.quantity * row.rate),
+          },
+          emptyMessage: 'No opening stock recorded.',
+        },
+      ],
+    });
   }
 }

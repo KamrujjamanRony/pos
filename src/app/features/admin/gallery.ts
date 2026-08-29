@@ -5,6 +5,7 @@ import { Api } from '../../core/services/api';
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { hueOf, initials, prettyDate } from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
@@ -42,10 +43,16 @@ import { UiBadge, UiEmpty, UiField, UiPageHeader, UiSkeleton } from '../../share
         searchLabel="Find an image"
         placeholder="Type or description…"
         (refresh)="reload()"
+        (printed)="printPdf()"
       >
         <div class="w-44">
           <label class="mb-1.5 block text-[12px] font-medium text-muted" for="g-type">Type</label>
-          <select id="g-type" class="ctl" [value]="typeFilter()" (change)="typeFilter.set($any($event.target).value)">
+          <select
+            id="g-type"
+            class="ctl"
+            [value]="typeFilter()"
+            (change)="typeFilter.set($any($event.target).value)"
+          >
             <option value="">All types</option>
             @for (type of types(); track type) {
               <option [value]="type">{{ type }}</option>
@@ -78,7 +85,9 @@ import { UiBadge, UiEmpty, UiField, UiPageHeader, UiSkeleton } from '../../share
                     class="size-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                 } @else {
-                  <span class="text-[28px] font-semibold text-white/85">{{ short(image.type) }}</span>
+                  <span class="text-[28px] font-semibold text-white/85">{{
+                    short(image.type)
+                  }}</span>
                 }
                 <span class="absolute top-2.5 left-2.5">
                   <ui-badge tone="brand">{{ image.type }}</ui-badge>
@@ -92,8 +101,20 @@ import { UiBadge, UiEmpty, UiField, UiPageHeader, UiSkeleton } from '../../share
                   <p class="truncate text-[11.5px] text-faint">{{ date(image.postDate) }}</p>
                 </div>
                 <div class="flex shrink-0 gap-1">
-                  <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit image" (pressed)="openEdit(image)" />
-                  <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete image" (pressed)="remove(image)" />
+                  <ui-button
+                    variant="ghost"
+                    size="icon"
+                    icon="edit"
+                    ariaLabel="Edit image"
+                    (pressed)="openEdit(image)"
+                  />
+                  <ui-button
+                    variant="ghost"
+                    size="icon"
+                    icon="trash"
+                    ariaLabel="Delete image"
+                    (pressed)="remove(image)"
+                  />
                 </div>
               </figcaption>
             </figure>
@@ -117,14 +138,30 @@ import { UiBadge, UiEmpty, UiField, UiPageHeader, UiSkeleton } from '../../share
       <div class="space-y-4">
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Type" for="gi-type" [required]="true" hint="Banner, Promo, Product…">
-            <input id="gi-type" type="text" class="ctl" [value]="type()" (input)="type.set($any($event.target).value)" />
+            <input
+              id="gi-type"
+              type="text"
+              class="ctl"
+              [value]="type()"
+              (input)="type.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="Description" for="gi-desc">
-            <input id="gi-desc" type="text" class="ctl" [value]="description()" (input)="description.set($any($event.target).value)" />
+            <input
+              id="gi-desc"
+              type="text"
+              class="ctl"
+              [value]="description()"
+              (input)="description.set($any($event.target).value)"
+            />
           </ui-field>
         </div>
 
-        <ui-field label="Image file" for="gi-file" [hint]="editing() ? 'Leave empty to keep the current image.' : 'PNG or JPG.'">
+        <ui-field
+          label="Image file"
+          for="gi-file"
+          [hint]="editing() ? 'Leave empty to keep the current image.' : 'PNG or JPG.'"
+        >
           <input
             id="gi-file"
             type="file"
@@ -148,7 +185,13 @@ import { UiBadge, UiEmpty, UiField, UiPageHeader, UiSkeleton } from '../../share
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!type().trim()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!type().trim()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save image' : 'Upload' }}
         </ui-button>
       </div>
@@ -161,6 +204,7 @@ export class GalleryPage {
   private readonly http = inject(Api);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
+  private readonly print = inject(PrintService);
 
   protected readonly date = prettyDate;
   protected readonly short = initials;
@@ -179,7 +223,12 @@ export class GalleryPage {
   protected readonly store = new ListStore<GalleryImage>(() => this.api.gallery.search({}));
 
   protected readonly types = computed(() => [
-    ...new Set(this.store.rows().map((row) => row.type).filter(Boolean)),
+    ...new Set(
+      this.store
+        .rows()
+        .map((row) => row.type)
+        .filter(Boolean),
+    ),
   ]);
 
   protected readonly filtered = computed(() => {
@@ -197,6 +246,35 @@ export class GalleryPage {
 
   protected reload(): void {
     void this.store.load();
+  }
+
+  /** The gallery as an inventory list — file names, types and who added them. */
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Image gallery',
+      subtitle: 'Banners, promos and product artwork on file',
+      filename: 'image-gallery',
+      filters: [
+        { label: 'Type', value: this.typeFilter() || 'All types' },
+        { label: 'Search', value: this.search() || 'All images' },
+      ],
+      summary: [
+        { label: 'Images', value: String(this.filtered().length) },
+        { label: 'Types in use', value: String(this.types().length) },
+      ],
+      sections: [
+        {
+          rows: this.filtered().map((row) => ({
+            Type: row.type,
+            Description: row.description,
+            File: row.fileName ?? row.imageUrl,
+            'Added by': row.postBy ?? '',
+            Added: prettyDate(row.postDate),
+          })),
+          emptyMessage: 'No images match this selection.',
+        },
+      ],
+    });
   }
 
   protected swatch(seed: string): string {

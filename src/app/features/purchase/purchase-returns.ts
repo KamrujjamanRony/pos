@@ -5,8 +5,21 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { addDays, clamp, currency, downloadCsv, money, round2, sum, today } from '../../core/util/format';
+import {
+  addDays,
+  amountInWords,
+  clamp,
+  currency,
+  dateRange,
+  downloadCsv,
+  money,
+  prettyDate,
+  round2,
+  sum,
+  today,
+} from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
@@ -54,6 +67,7 @@ interface ReturnLine {
         placeholder="Return number, supplier, reason…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -67,7 +81,22 @@ interface ReturnLine {
     </div>
 
     <ng-template #rowActions let-row>
-      <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete return" (pressed)="remove(row)" />
+      <div class="flex justify-end gap-1">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="printer"
+          ariaLabel="Print debit note"
+          (pressed)="printNote(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete return"
+          (pressed)="remove(row)"
+        />
+      </div>
     </ng-template>
 
     <ui-modal
@@ -79,7 +108,13 @@ interface ReturnLine {
       <div class="space-y-4">
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Return date" for="pr-date" [required]="true">
-            <input id="pr-date" type="date" class="ctl" [value]="returnDate()" (change)="returnDate.set($any($event.target).value)" />
+            <input
+              id="pr-date"
+              type="date"
+              class="ctl"
+              [value]="returnDate()"
+              (change)="returnDate.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="Goods receipt" [required]="true">
             <ui-combobox
@@ -99,10 +134,26 @@ interface ReturnLine {
             <table class="w-full text-left text-[13px]">
               <thead class="bg-surface-2">
                 <tr>
-                  <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Item</th>
-                  <th class="w-24 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Received</th>
-                  <th class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Returning</th>
-                  <th class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Amount</th>
+                  <th
+                    class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Item
+                  </th>
+                  <th
+                    class="w-24 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Received
+                  </th>
+                  <th
+                    class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Returning
+                  </th>
+                  <th
+                    class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Amount
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -110,7 +161,9 @@ interface ReturnLine {
                   <tr class="border-t border-line">
                     <td class="px-3 py-2">
                       <p class="font-medium text-ink">{{ line.itemName }}</p>
-                      <p class="num text-[11.5px] text-faint">{{ money(line.purchasePrice) }} each</p>
+                      <p class="num text-[11.5px] text-faint">
+                        {{ money(line.purchasePrice) }} each
+                      </p>
                     </td>
                     <td class="num px-3 py-2 text-right text-muted">{{ line.maxQuantity }}</td>
                     <td class="px-3 py-2">
@@ -133,7 +186,12 @@ interface ReturnLine {
 
           <div class="grid gap-4 sm:grid-cols-3">
             <ui-field label="Credit mode" for="pr-mode">
-              <select id="pr-mode" class="ctl" [value]="paymentMode()" (change)="onModeChange($any($event.target).value)">
+              <select
+                id="pr-mode"
+                class="ctl"
+                [value]="paymentMode()"
+                (change)="onModeChange($any($event.target).value)"
+              >
                 <option value="Cash">Cash</option>
                 <option value="Bank">Bank</option>
               </select>
@@ -150,22 +208,49 @@ interface ReturnLine {
                 }
               </select>
             </ui-field>
-            <ui-field label="Cash received back" for="pr-cash" [hint]="'Return value ' + currency(total())">
-              <input id="pr-cash" type="number" class="ctl" [value]="cashReceive()" (input)="cashReceive.set(+$any($event.target).value || 0)" />
+            <ui-field
+              label="Cash received back"
+              for="pr-cash"
+              [hint]="'Return value ' + currency(total())"
+            >
+              <input
+                id="pr-cash"
+                type="number"
+                class="ctl"
+                [value]="cashReceive()"
+                (input)="cashReceive.set(+$any($event.target).value || 0)"
+              />
             </ui-field>
           </div>
 
           <ui-field label="Reason" for="pr-remarks">
-            <input id="pr-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" placeholder="Damaged units, wrong model…" />
+            <input
+              id="pr-remarks"
+              type="text"
+              class="ctl"
+              [value]="remarks()"
+              (input)="remarks.set($any($event.target).value)"
+              placeholder="Damaged units, wrong model…"
+            />
           </ui-field>
         } @else {
-          <ui-empty title="Choose a goods receipt" message="Its lines will appear here, ready to adjust." icon="truck" />
+          <ui-empty
+            title="Choose a goods receipt"
+            message="Its lines will appear here, ready to adjust."
+            icon="truck"
+          />
         }
       </div>
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!total()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!total()"
+          (pressed)="save()"
+        >
           Post return
         </ui-button>
       </div>
@@ -178,6 +263,7 @@ export class PurchaseReturnsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly currency = currency;
@@ -207,8 +293,20 @@ export class PurchaseReturnsPage {
   );
 
   protected readonly columns: Column<PurchaseReturn>[] = [
-    { key: 'returnNo', header: 'Return', value: (row) => row.returnNo, kind: 'mono', width: '130px' },
-    { key: 'returnDate', header: 'Date', value: (row) => row.returnDate, kind: 'date', width: '120px' },
+    {
+      key: 'returnNo',
+      header: 'Return',
+      value: (row) => row.returnNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'returnDate',
+      header: 'Date',
+      value: (row) => row.returnDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'supplierName',
       header: 'Supplier',
@@ -216,9 +314,27 @@ export class PurchaseReturnsPage {
       kind: 'strong',
       sub: (row) => row.remarks,
     },
-    { key: 'lines', header: 'Lines', value: (row) => row.details.length, align: 'right', hideOnMobile: true },
-    { key: 'netAmount', header: 'Return value', value: (row) => row.netAmount ?? 0, kind: 'money', align: 'right' },
-    { key: 'cashReceive', header: 'Cash back', value: (row) => row.cashReceive, kind: 'money', align: 'right' },
+    {
+      key: 'lines',
+      header: 'Lines',
+      value: (row) => row.details.length,
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'netAmount',
+      header: 'Return value',
+      value: (row) => row.netAmount ?? 0,
+      kind: 'money',
+      align: 'right',
+    },
+    {
+      key: 'cashReceive',
+      header: 'Cash back',
+      value: (row) => row.cashReceive,
+      kind: 'money',
+      align: 'right',
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -351,18 +467,83 @@ export class PurchaseReturnsPage {
     this.toast.success('Return deleted', `${row.returnNo} was removed.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Return: row.returnNo,
+      Date: row.returnDate,
+      Supplier: row.supplierName,
+      Lines: row.details.length,
+      Value: row.netAmount,
+      'Cash back': row.cashReceive,
+      Reason: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'purchase-returns',
-      this.filtered().map((row) => ({
-        Return: row.returnNo,
-        Date: row.returnDate,
-        Supplier: row.supplierName,
-        Lines: row.details.length,
-        Value: row.netAmount,
-        'Cash back': row.cashReceive,
-        Reason: row.remarks,
-      })),
-    );
+    downloadCsv('purchase-returns', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Purchase returns',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'purchase-returns',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Lines: sum(rows, (row) => row.details.length),
+            Value: sum(rows, (row) => row.netAmount ?? 0),
+            'Cash back': sum(rows, (row) => row.cashReceive),
+          },
+          emptyMessage: 'No returns in this window.',
+        },
+      ],
+    });
+  }
+
+  /** The debit note sent to the supplier. */
+  protected printNote(row: PurchaseReturn): void {
+    this.print.document({
+      title: 'Debit note — purchase return',
+      documentNo: row.returnNo,
+      filename: `debit-note-${row.returnNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(row.returnDate) },
+        { label: 'Against entry', value: row.purchaseEntryId ? `#${row.purchaseEntryId}` : '—' },
+        { label: 'Recovery mode', value: row.paymentMode },
+      ],
+      parties: [{ heading: 'Returned to', lines: [row.supplierName || '—'] }],
+      section: {
+        columns: [
+          { key: 'Item', align: 'left' },
+          { key: 'Qty', align: 'right' },
+          { key: 'Cost', align: 'right' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: row.details.map((line) => ({
+          Item: line.itemName ?? '—',
+          Qty: line.quantity,
+          Cost: line.purchasePrice,
+          Amount: line.purchasePrice * line.quantity,
+        })),
+        totals: {
+          Qty: sum(row.details, (line) => line.quantity),
+          Amount: sum(row.details, (line) => line.purchasePrice * line.quantity),
+        },
+      },
+      totals: [
+        { label: 'Discount', value: `− ${currency(row.discount)}` },
+        { label: 'Debit value', value: currency(row.netAmount), strong: true },
+        { label: `Recovered (${row.paymentMode})`, value: currency(row.cashReceive) },
+      ],
+      amountInWords: amountInWords(row.netAmount),
+      note: row.remarks || undefined,
+      signatures: ['Supplier', 'Authorised signature'],
+    });
   }
 }

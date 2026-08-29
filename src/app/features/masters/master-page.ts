@@ -8,6 +8,7 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { downloadCsv, matches, prettyDate } from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
@@ -45,19 +46,14 @@ export interface MasterConfig {
  */
 @Component({
   selector: 'app-master-page',
-  imports: [
-    UiPageHeader,
-    UiTable,
-    UiFilterBar,
-    UiButton,
-    UiModal,
-    UiField,
-    FormField,
-    UiAutofocus,
-  ],
+  imports: [UiPageHeader, UiTable, UiFilterBar, UiButton, UiModal, UiField, FormField, UiAutofocus],
   template: `
     <div class="space-y-4">
-      <ui-page-header [icon]="config().icon" [title]="config().title" [subtitle]="config().subtitle">
+      <ui-page-header
+        [icon]="config().icon"
+        [title]="config().title"
+        [subtitle]="config().subtitle"
+      >
         <ui-button variant="primary" icon="plus" (pressed)="openCreate()">
           New {{ config().singular }}
         </ui-button>
@@ -69,6 +65,7 @@ export interface MasterConfig {
         [placeholder]="'Search ' + config().title.toLowerCase() + '…'"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -77,7 +74,9 @@ export interface MasterConfig {
         [loading]="store.loading()"
         [actions]="rowActions"
         [emptyTitle]="'No ' + config().title.toLowerCase() + ' yet'"
-        [emptyMessage]="'Create the first ' + config().singular + ' to start using it in documents.'"
+        [emptyMessage]="
+          'Create the first ' + config().singular + ' to start using it in documents.'
+        "
       />
     </div>
 
@@ -142,8 +141,11 @@ export class MasterPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
-  private readonly routeData = toSignal(this.route.data, { initialValue: this.route.snapshot.data });
+  private readonly routeData = toSignal(this.route.data, {
+    initialValue: this.route.snapshot.data,
+  });
 
   protected readonly config = computed(() => this.routeData() as unknown as MasterConfig);
 
@@ -157,9 +159,7 @@ export class MasterPage {
     required(path.name, { message: 'A name is required.' });
   });
 
-  protected readonly store = new ListStore<NamedEntity>((filter) =>
-    this.endpoint().search(filter),
-  );
+  protected readonly store = new ListStore<NamedEntity>((filter) => this.endpoint().search(filter));
 
   protected readonly columns: Column<NamedEntity>[] = [
     { key: 'name', header: 'Name', value: (row) => row.name, kind: 'strong' },
@@ -258,14 +258,36 @@ export class MasterPage {
     }
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Name: row.name,
+      'Created by': row.postBy ?? '',
+      Created: prettyDate(row.postDate),
+    }));
+  }
+
+  private slug(): string {
+    return this.config().title.toLowerCase().replace(/\s+/g, '-');
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      this.config().title.toLowerCase().replace(/\s+/g, '-'),
-      this.filtered().map((row) => ({
-        Name: row.name,
-        'Created by': row.postBy ?? '',
-        Created: prettyDate(row.postDate),
-      })),
-    );
+    downloadCsv(this.slug(), this.reportRows());
+  }
+
+  protected printPdf(): void {
+    this.print.report({
+      title: this.config().title,
+      subtitle: this.config().subtitle,
+      filename: this.slug(),
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: [{ label: 'Records', value: String(this.filtered().length) }],
+      sections: [
+        {
+          rows: this.reportRows(),
+          emptyMessage: `No ${this.config().title.toLowerCase()} recorded yet.`,
+        },
+      ],
+    });
   }
 }

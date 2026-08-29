@@ -10,8 +10,17 @@ import {
 } from '../../core/models';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { clamp, currency, money, round2, today } from '../../core/util/format';
+import {
+  amountInWords,
+  clamp,
+  currency,
+  money,
+  prettyDate,
+  round2,
+  today,
+} from '../../core/util/format';
 import { buttonClass, UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
 import { UiCount } from '../../shared/ui/count';
@@ -50,6 +59,14 @@ let lineSeed = 0;
         subtitle="Stock leaves the branch and the customer ledger moves the moment this is saved."
       >
         <a [class]="ghostButton" routerLink="/sales/invoices">Cancel</a>
+        <ui-button
+          variant="outline"
+          icon="printer"
+          [disabled]="!lines().length"
+          (pressed)="printPdf()"
+        >
+          Print / PDF
+        </ui-button>
         <ui-button
           variant="primary"
           icon="save"
@@ -117,14 +134,27 @@ let lineSeed = 0;
               </ui-field>
 
               <ui-field label="Remarks" for="sf-remarks">
-                <input id="sf-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" />
+                <input
+                  id="sf-remarks"
+                  type="text"
+                  class="ctl"
+                  [value]="remarks()"
+                  (input)="remarks.set($any($event.target).value)"
+                />
               </ui-field>
             </div>
           </ui-card>
 
-          <ui-card heading="Lines" [subheading]="lines().length + ' items on this invoice'" icon="box" [padded]="false">
+          <ui-card
+            heading="Lines"
+            [subheading]="lines().length + ' items on this invoice'"
+            icon="box"
+            [padded]="false"
+          >
             <div card-actions>
-              <ui-button variant="soft" size="sm" icon="plus" (pressed)="addBlankLine()">Add line</ui-button>
+              <ui-button variant="soft" size="sm" icon="plus" (pressed)="addBlankLine()"
+                >Add line</ui-button
+              >
             </div>
 
             <div class="border-b border-line bg-surface-2/50 p-3.5">
@@ -145,17 +175,40 @@ let lineSeed = 0;
                 <table class="w-full text-left text-sm">
                   <thead>
                     <tr class="border-b border-line bg-surface-2/40">
-                      <th class="px-3 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Item</th>
-                      <th class="w-28 px-3 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Rate</th>
-                      <th class="w-24 px-3 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Qty</th>
-                      <th class="w-36 px-3 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Serial</th>
-                      <th class="w-28 px-3 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Amount</th>
+                      <th
+                        class="px-3 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                      >
+                        Item
+                      </th>
+                      <th
+                        class="w-28 px-3 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                      >
+                        Rate
+                      </th>
+                      <th
+                        class="w-24 px-3 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                      >
+                        Qty
+                      </th>
+                      <th
+                        class="w-36 px-3 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                      >
+                        Serial
+                      </th>
+                      <th
+                        class="w-28 px-3 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                      >
+                        Amount
+                      </th>
                       <th class="w-10 px-3 py-2.5"><span class="sr-only">Remove</span></th>
                     </tr>
                   </thead>
                   <tbody>
                     @for (line of lines(); track line.key; let i = $index) {
-                      <tr class="stagger border-b border-line/70 last:border-0" [style]="'--i:' + i">
+                      <tr
+                        class="stagger border-b border-line/70 last:border-0"
+                        [style]="'--i:' + i"
+                      >
                         <td class="px-3 py-2">
                           <ui-combobox
                             [options]="lookups.items()"
@@ -176,7 +229,9 @@ let lineSeed = 0;
                             class="ctl ctl-sm text-right"
                             [value]="line.salesPrice"
                             [attr.aria-label]="'Rate for line ' + (i + 1)"
-                            (input)="patch(line.key, { salesPrice: +$any($event.target).value || 0 })"
+                            (input)="
+                              patch(line.key, { salesPrice: +$any($event.target).value || 0 })
+                            "
                           />
                         </td>
                         <td class="px-3 py-2">
@@ -185,7 +240,11 @@ let lineSeed = 0;
                             class="ctl ctl-sm text-right"
                             [value]="line.quantity"
                             [attr.aria-label]="'Quantity for line ' + (i + 1)"
-                            (input)="patch(line.key, { quantity: clamp(+$any($event.target).value || 0, 0, 99999) })"
+                            (input)="
+                              patch(line.key, {
+                                quantity: clamp(+$any($event.target).value || 0, 0, 99999),
+                              })
+                            "
                           />
                         </td>
                         <td class="px-3 py-2">
@@ -371,6 +430,7 @@ export class SalesFormPage {
   private readonly router = inject(Router);
   private readonly toast = inject(ToastService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly clamp = clamp;
@@ -502,7 +562,14 @@ export class SalesFormPage {
   protected addBlankLine(): void {
     this.lines.update((lines) => [
       ...lines,
-      { key: `line-${lineSeed++}`, itemId: null, itemName: '', salesPrice: 0, quantity: 1, serialNo: '' },
+      {
+        key: `line-${lineSeed++}`,
+        itemId: null,
+        itemName: '',
+        salesPrice: 0,
+        quantity: 1,
+        serialNo: '',
+      },
     ]);
   }
 
@@ -523,6 +590,74 @@ export class SalesFormPage {
   protected onModeChange(mode: string): void {
     this.paymentMode.set(mode as PaymentMode);
     this.paymentAccountId.set(this.accounts()[0]?.id ?? null);
+  }
+
+  /**
+   * Prints what is on the form — a proforma while the invoice is still a draft,
+   * the invoice itself once it has a number.
+   */
+  protected printPdf(): void {
+    const customer = this.lookups.customers().find((row) => row.id === Number(this.customerId()));
+    const branch = this.lookups.branches().find((row) => row.id === Number(this.branchId()));
+    const employee = this.lookups.employees().find((row) => row.id === Number(this.employeeId()));
+    const due = round2(this.net() - this.receiveAmount());
+    const number = this.documentNo() || 'DRAFT';
+
+    this.print.document({
+      title: this.isEdit() ? 'Sales invoice' : 'Proforma invoice',
+      documentNo: number,
+      status: this.isEdit() ? (due > 0.5 ? 'Due' : 'Paid') : 'Not yet posted',
+      filename: `invoice-${number}`,
+      meta: [
+        { label: 'Date', value: prettyDate(this.invoiceDate()) },
+        { label: 'Branch', value: branch?.name ?? '—' },
+        { label: 'Sold by', value: employee?.employeeName ?? '—' },
+        { label: 'Payment', value: this.paymentMode() },
+      ],
+      parties: [
+        {
+          heading: 'Billed to',
+          lines: [customer?.customerName ?? 'Walk-in customer', customer?.contactNumber],
+        },
+        { heading: 'Notes', lines: [this.remarks()] },
+      ],
+      section: {
+        columns: [
+          { key: 'Item', align: 'left' },
+          { key: 'Serial', align: 'left' },
+          { key: 'Qty', align: 'right' },
+          { key: 'Rate', align: 'right' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: this.lines().map((line) => ({
+          Item: line.itemName,
+          Serial: line.serialNo,
+          Qty: line.quantity,
+          Rate: line.salesPrice,
+          Amount: round2(line.salesPrice * line.quantity),
+        })),
+        totals: {
+          Qty: this.lines().reduce((total, line) => total + line.quantity, 0),
+          Amount: this.gross(),
+        },
+      },
+      totals: [
+        { label: 'Gross', value: currency(this.gross()) },
+        {
+          label: `Discount${this.discountType() === 'Percent' ? ` (${this.discount()}%)` : ''}`,
+          value: `− ${currency(this.discountValue())}`,
+        },
+        ...(this.courierCost() ? [{ label: 'Courier', value: currency(this.courierCost()) }] : []),
+        { label: 'Net payable', value: currency(this.net()), strong: true },
+        { label: 'Received', value: currency(this.receiveAmount()) },
+        { label: 'Due', value: currency(due) },
+      ],
+      amountInWords: amountInWords(this.net()),
+      note: this.isEdit()
+        ? this.remarks() || undefined
+        : 'This is not a tax invoice — the sale has not been posted yet.',
+      signatures: ['Received by', 'Authorised signature'],
+    });
   }
 
   protected async save(): Promise<void> {

@@ -5,10 +5,13 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import {
   addDays,
+  amountInWords,
   currency,
+  dateRange,
   downloadCsv,
   money,
   prettyDate,
@@ -69,6 +72,7 @@ interface Allocation extends OutstandingInvoice {
         placeholder="Payment number, supplier, reference…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -82,7 +86,22 @@ interface Allocation extends OutstandingInvoice {
     </div>
 
     <ng-template #rowActions let-row>
-      <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete payment" (pressed)="remove(row)" />
+      <div class="flex justify-end gap-1">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="printer"
+          ariaLabel="Print payment voucher"
+          (pressed)="printVoucher(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete payment"
+          (pressed)="remove(row)"
+        />
+      </div>
     </ng-template>
 
     <ui-modal
@@ -94,7 +113,13 @@ interface Allocation extends OutstandingInvoice {
       <div class="space-y-4">
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Payment date" for="py-date" [required]="true">
-            <input id="py-date" type="date" class="ctl" [value]="paymentDate()" (change)="paymentDate.set($any($event.target).value)" />
+            <input
+              id="py-date"
+              type="date"
+              class="ctl"
+              [value]="paymentDate()"
+              (change)="paymentDate.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="Supplier" [required]="true">
             <ui-combobox
@@ -111,10 +136,22 @@ interface Allocation extends OutstandingInvoice {
 
         <div class="grid gap-4 sm:grid-cols-3">
           <ui-field label="Amount paid" for="py-amount" [required]="true">
-            <input id="py-amount" type="number" step="0.01" class="ctl" [value]="amount()" (input)="amount.set(+$any($event.target).value || 0)" />
+            <input
+              id="py-amount"
+              type="number"
+              step="0.01"
+              class="ctl"
+              [value]="amount()"
+              (input)="amount.set(+$any($event.target).value || 0)"
+            />
           </ui-field>
           <ui-field label="Mode" for="py-mode">
-            <select id="py-mode" class="ctl" [value]="paymentMode()" (change)="onModeChange($any($event.target).value)">
+            <select
+              id="py-mode"
+              class="ctl"
+              [value]="paymentMode()"
+              (change)="onModeChange($any($event.target).value)"
+            >
               <option value="Cash">Cash</option>
               <option value="Bank">Bank</option>
             </select>
@@ -135,7 +172,9 @@ interface Allocation extends OutstandingInvoice {
 
         @if (supplierId()) {
           <div class="overflow-hidden rounded-xl border border-line">
-            <div class="flex items-center justify-between border-b border-line bg-surface-2/60 px-3.5 py-2.5">
+            <div
+              class="flex items-center justify-between border-b border-line bg-surface-2/60 px-3.5 py-2.5"
+            >
               <h3 class="text-[13px] font-semibold text-ink">Open purchases</h3>
               <ui-button variant="soft" size="sm" icon="zap" (pressed)="autoAllocate()">
                 Auto-allocate
@@ -146,16 +185,34 @@ interface Allocation extends OutstandingInvoice {
               <table class="w-full text-left text-[13px]">
                 <thead class="bg-surface-2/40">
                   <tr>
-                    <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Entry</th>
-                    <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Date</th>
-                    <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Payable</th>
-                    <th class="w-32 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Applying</th>
+                    <th
+                      class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Entry
+                    </th>
+                    <th
+                      class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Date
+                    </th>
+                    <th
+                      class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Payable
+                    </th>
+                    <th
+                      class="w-32 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Applying
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (row of allocations(); track row.documentId) {
                     <tr class="border-t border-line">
-                      <td class="px-3 py-2 font-mono text-[12.5px] text-brand-text">{{ row.documentNo }}</td>
+                      <td class="px-3 py-2 font-mono text-[12.5px] text-brand-text">
+                        {{ row.documentNo }}
+                      </td>
                       <td class="px-3 py-2 text-muted">{{ date(row.documentDate) }}</td>
                       <td class="num px-3 py-2 text-right">{{ money(row.dueAmount) }}</td>
                       <td class="px-3 py-2">
@@ -173,7 +230,9 @@ interface Allocation extends OutstandingInvoice {
                 </tbody>
               </table>
 
-              <div class="flex flex-wrap items-center justify-between gap-3 border-t border-line px-3.5 py-2.5 text-[13px]">
+              <div
+                class="flex flex-wrap items-center justify-between gap-3 border-t border-line px-3.5 py-2.5 text-[13px]"
+              >
                 <p class="text-muted">
                   Allocated
                   <span class="num ml-1 font-semibold text-ink">{{ money(allocated()) }}</span>
@@ -195,15 +254,29 @@ interface Allocation extends OutstandingInvoice {
 
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Reference" for="py-ref" hint="Cheque or transaction number.">
-            <input id="py-ref" type="text" class="ctl" [value]="referenceNo()" (input)="referenceNo.set($any($event.target).value)" />
+            <input
+              id="py-ref"
+              type="text"
+              class="ctl"
+              [value]="referenceNo()"
+              (input)="referenceNo.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="Remarks" for="py-remarks">
-            <input id="py-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" />
+            <input
+              id="py-remarks"
+              type="text"
+              class="ctl"
+              [value]="remarks()"
+              (input)="remarks.set($any($event.target).value)"
+            />
           </ui-field>
         </div>
 
         @if (overAllocated()) {
-          <p class="flex items-center gap-2 rounded-xl bg-neg-soft px-3.5 py-2.5 text-[13px] text-neg">
+          <p
+            class="flex items-center gap-2 rounded-xl bg-neg-soft px-3.5 py-2.5 text-[13px] text-neg"
+          >
             <ui-icon name="alert" [size]="16" />
             The allocated total is more than the amount paid.
           </p>
@@ -231,6 +304,7 @@ export class PaymentsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly date = prettyDate;
@@ -258,8 +332,20 @@ export class PaymentsPage {
   );
 
   protected readonly columns: Column<PaymentVoucher>[] = [
-    { key: 'paymentNo', header: 'Payment', value: (row) => row.paymentNo, kind: 'mono', width: '130px' },
-    { key: 'paymentDate', header: 'Date', value: (row) => row.paymentDate, kind: 'date', width: '120px' },
+    {
+      key: 'paymentNo',
+      header: 'Payment',
+      value: (row) => row.paymentNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'paymentDate',
+      header: 'Date',
+      value: (row) => row.paymentDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'supplierName',
       header: 'Supplier',
@@ -305,7 +391,12 @@ export class PaymentsPage {
       { label: 'Paid out', value: currency(sum(rows, (row) => row.amount)) },
       {
         label: 'From bank',
-        value: currency(sum(rows.filter((row) => row.paymentMode === 'Bank'), (row) => row.amount)),
+        value: currency(
+          sum(
+            rows.filter((row) => row.paymentMode === 'Bank'),
+            (row) => row.amount,
+          ),
+        ),
       },
     ];
   });
@@ -406,18 +497,69 @@ export class PaymentsPage {
     this.toast.success('Payment deleted', `${row.paymentNo} was reversed.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Payment: row.paymentNo,
+      Date: row.paymentDate,
+      Supplier: row.supplierName,
+      Mode: row.paymentMode,
+      Amount: row.amount,
+      Reference: row.referenceNo,
+      Remarks: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'payments',
-      this.filtered().map((row) => ({
-        Payment: row.paymentNo,
-        Date: row.paymentDate,
-        Supplier: row.supplierName,
-        Mode: row.paymentMode,
-        Amount: row.amount,
-        Reference: row.referenceNo,
-        Remarks: row.remarks,
-      })),
-    );
+    downloadCsv('payments', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Payments',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'payments',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: { Amount: sum(this.filtered(), (row) => row.amount) },
+          emptyMessage: 'No payments in this window.',
+        },
+      ],
+    });
+  }
+
+  /** The payment voucher the supplier signs for. */
+  protected printVoucher(row: PaymentVoucher): void {
+    this.print.document({
+      title: 'Payment voucher',
+      documentNo: row.paymentNo,
+      filename: `payment-${row.paymentNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(row.paymentDate) },
+        { label: 'Mode', value: row.paymentMode },
+        { label: 'Reference', value: row.referenceNo || '—' },
+      ],
+      parties: [{ heading: 'Paid to', lines: [row.supplierName || '—'] }],
+      section: {
+        heading: 'Allocated against',
+        columns: [
+          { key: 'Entry', align: 'left' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: row.details.map((line) => ({
+          Entry: line.invoiceNo ?? 'On account',
+          Amount: line.amount,
+        })),
+        totals: { Amount: sum(row.details, (line) => line.amount) },
+        emptyMessage: 'Held on account — not allocated to an entry.',
+      },
+      totals: [{ label: 'Paid', value: currency(row.amount), strong: true }],
+      amountInWords: amountInWords(row.amount),
+      note: row.remarks || undefined,
+      signatures: ['Received by', 'Authorised signature'],
+    });
   }
 }

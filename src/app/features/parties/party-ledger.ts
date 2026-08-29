@@ -5,9 +5,11 @@ import { firstValueFrom } from 'rxjs';
 import type { PartyBalanceRow, PartyLedgerRow } from '../../core/models';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import {
   addDays,
   currency,
+  dateRange,
   downloadCsv,
   money,
   prettyDate,
@@ -15,6 +17,7 @@ import {
   sum,
   today,
 } from '../../core/util/format';
+import { UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiIcon } from '../../shared/ui/icon';
@@ -36,6 +39,7 @@ interface PartyOption {
   selector: 'app-party-ledger',
   imports: [
     UiPageHeader,
+    UiButton,
     UiFilterBar,
     UiTable,
     UiCombobox,
@@ -96,6 +100,7 @@ interface PartyOption {
         placeholder="Search by name…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-64">
           <label class="mb-1.5 block text-[12px] font-medium text-muted">Statement for</label>
@@ -118,11 +123,19 @@ interface PartyOption {
           icon="file"
           [padded]="false"
         >
-          <div card-actions class="text-right">
-            <p class="text-[11px] tracking-wide text-faint uppercase">Closing balance</p>
-            <p class="num text-[15px] font-semibold" [class]="closing() > 0 ? 'text-warn' : 'text-pos'">
-              {{ currency(closing()) }}
-            </p>
+          <div card-actions class="flex items-center gap-3">
+            <div class="text-right">
+              <p class="text-[11px] tracking-wide text-faint uppercase">Closing balance</p>
+              <p
+                class="num text-[15px] font-semibold"
+                [class]="closing() > 0 ? 'text-warn' : 'text-pos'"
+              >
+                {{ currency(closing()) }}
+              </p>
+            </div>
+            <ui-button variant="outline" size="sm" icon="printer" (pressed)="printStatement()">
+              Print statement
+            </ui-button>
           </div>
 
           @if (statementLoading()) {
@@ -132,23 +145,58 @@ interface PartyOption {
               <table class="w-full text-left text-sm">
                 <thead>
                   <tr class="border-b border-line bg-surface-2/60">
-                    <th class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Date</th>
-                    <th class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Document</th>
-                    <th class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">Particulars</th>
-                    <th class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Debit</th>
-                    <th class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Credit</th>
-                    <th class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Balance</th>
+                    <th
+                      class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Date
+                    </th>
+                    <th
+                      class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Document
+                    </th>
+                    <th
+                      class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Particulars
+                    </th>
+                    <th
+                      class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Debit
+                    </th>
+                    <th
+                      class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Credit
+                    </th>
+                    <th
+                      class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                    >
+                      Balance
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (row of statement(); track $index; let i = $index) {
-                    <tr class="stagger border-b border-line/70 last:border-0 hover:bg-surface-2/50" [style]="'--i:' + i">
+                    <tr
+                      class="stagger border-b border-line/70 last:border-0 hover:bg-surface-2/50"
+                      [style]="'--i:' + i"
+                    >
                       <td class="px-4 py-2 whitespace-nowrap text-muted">{{ date(row.date) }}</td>
-                      <td class="px-4 py-2 font-mono text-[12.5px] text-brand-text">{{ row.documentNo }}</td>
+                      <td class="px-4 py-2 font-mono text-[12.5px] text-brand-text">
+                        {{ row.documentNo }}
+                      </td>
                       <td class="px-4 py-2 text-ink">{{ row.particulars }}</td>
-                      <td class="num px-4 py-2 text-right">{{ row.debit ? money(row.debit) : '—' }}</td>
-                      <td class="num px-4 py-2 text-right">{{ row.credit ? money(row.credit) : '—' }}</td>
-                      <td class="num px-4 py-2 text-right font-medium text-ink">{{ money(row.balance) }}</td>
+                      <td class="num px-4 py-2 text-right">
+                        {{ row.debit ? money(row.debit) : '—' }}
+                      </td>
+                      <td class="num px-4 py-2 text-right">
+                        {{ row.credit ? money(row.credit) : '—' }}
+                      </td>
+                      <td class="num px-4 py-2 text-right font-medium text-ink">
+                        {{ money(row.balance) }}
+                      </td>
                     </tr>
                   }
                 </tbody>
@@ -196,12 +244,15 @@ export class PartyLedgerPage {
   private readonly api = inject(PosApi);
   private readonly route = inject(ActivatedRoute);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly currency = currency;
   protected readonly date = prettyDate;
 
-  private readonly routeData = toSignal(this.route.data, { initialValue: this.route.snapshot.data });
+  private readonly routeData = toSignal(this.route.data, {
+    initialValue: this.route.snapshot.data,
+  });
   protected readonly isCustomer = computed(
     () => (this.routeData() as unknown as PartyLedgerConfig).kind !== 'supplier',
   );
@@ -223,20 +274,58 @@ export class PartyLedgerPage {
 
   protected readonly parties = computed<PartyOption[]>(() =>
     this.isCustomer()
-      ? this.lookups.customers().map((c) => ({ id: c.id, name: c.customerName, sub: c.contactNumber }))
-      : this.lookups.suppliers().map((s) => ({ id: s.id, name: s.supplierName, sub: s.mobileNumber })),
+      ? this.lookups
+          .customers()
+          .map((c) => ({ id: c.id, name: c.customerName, sub: c.contactNumber }))
+      : this.lookups
+          .suppliers()
+          .map((s) => ({ id: s.id, name: s.supplierName, sub: s.mobileNumber })),
   );
 
   protected readonly columns: Column<PartyBalanceRow>[] = [
-    { key: 'partyName', header: 'Name', value: (row) => row.partyName, kind: 'strong', sub: (row) => row.contact },
-    { key: 'opening', header: 'Opening', value: (row) => row.opening, kind: 'money', align: 'right', hideOnMobile: true },
-    { key: 'debit', header: 'Debit', value: (row) => row.debit, kind: 'money', align: 'right', hideOnMobile: true },
-    { key: 'credit', header: 'Credit', value: (row) => row.credit, kind: 'money', align: 'right', hideOnMobile: true },
-    { key: 'balance', header: 'Balance', value: (row) => row.balance, kind: 'money', align: 'right' },
+    {
+      key: 'partyName',
+      header: 'Name',
+      value: (row) => row.partyName,
+      kind: 'strong',
+      sub: (row) => row.contact,
+    },
+    {
+      key: 'opening',
+      header: 'Opening',
+      value: (row) => row.opening,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'debit',
+      header: 'Debit',
+      value: (row) => row.debit,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'credit',
+      header: 'Credit',
+      value: (row) => row.credit,
+      kind: 'money',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'balance',
+      header: 'Balance',
+      value: (row) => row.balance,
+      kind: 'money',
+      align: 'right',
+    },
     {
       key: 'state',
       header: 'State',
-      value: (row) => (row.balance > 0.5 ? 'Outstanding' : row.balance < -0.5 ? 'In credit' : 'Clear'),
+      value: (row) =>
+        row.balance > 0.5 ? 'Outstanding' : row.balance < -0.5 ? 'In credit' : 'Clear',
       kind: 'badge',
       align: 'right',
       tone: (row) => (row.balance > 0.5 ? 'warn' : row.balance < -0.5 ? 'info' : 'pos'),
@@ -251,7 +340,10 @@ export class PartyLedgerPage {
   });
 
   protected readonly outstanding = computed(() =>
-    sum(this.balances().filter((row) => row.balance > 0), (row) => row.balance),
+    sum(
+      this.balances().filter((row) => row.balance > 0),
+      (row) => row.balance,
+    ),
   );
   protected readonly withBalance = computed(
     () => this.balances().filter((row) => row.balance > 0.5).length,
@@ -320,31 +412,107 @@ export class PartyLedgerPage {
     void this.loadStatement();
   }
 
+  private statementRows(): Record<string, unknown>[] {
+    return this.statement().map((row) => ({
+      Date: row.date,
+      Document: row.documentNo,
+      Particulars: row.particulars,
+      Debit: row.debit,
+      Credit: row.credit,
+      Balance: row.balance,
+    }));
+  }
+
+  private balanceRows(): Record<string, unknown>[] {
+    return this.filteredBalances().map((row) => ({
+      Name: row.partyName,
+      Contact: row.contact,
+      Opening: row.opening,
+      Debit: row.debit,
+      Credit: row.credit,
+      Balance: row.balance,
+    }));
+  }
+
   protected exportCsv(): void {
     if (this.partyId()) {
-      downloadCsv(
-        `${this.selectedName()}-statement`,
-        this.statement().map((row) => ({
-          Date: row.date,
-          Document: row.documentNo,
-          Particulars: row.particulars,
-          Debit: row.debit,
-          Credit: row.credit,
-          Balance: row.balance,
-        })),
-      );
+      downloadCsv(`${this.selectedName()}-statement`, this.statementRows());
       return;
     }
-    downloadCsv(
-      this.isCustomer() ? 'customer-balances' : 'supplier-balances',
-      this.filteredBalances().map((row) => ({
-        Name: row.partyName,
-        Contact: row.contact,
-        Opening: row.opening,
-        Debit: row.debit,
-        Credit: row.credit,
-        Balance: row.balance,
-      })),
-    );
+    downloadCsv(this.isCustomer() ? 'customer-balances' : 'supplier-balances', this.balanceRows());
+  }
+
+  /** A statement when one party is selected, the balance list otherwise. */
+  protected printPdf(): void {
+    if (this.partyId()) {
+      this.printStatement();
+      return;
+    }
+
+    const rows = this.filteredBalances();
+    this.print.report({
+      title: this.isCustomer() ? 'Customer balances' : 'Supplier balances',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: this.isCustomer() ? 'customer-balances' : 'supplier-balances',
+      filters: [{ label: 'Search', value: this.search() || 'All parties' }],
+      summary: [
+        {
+          label: this.isCustomer() ? 'Total receivable' : 'Total payable',
+          value: currency(this.outstanding()),
+        },
+        { label: 'Parties listed', value: String(rows.length) },
+        { label: 'Carrying a balance', value: String(this.withBalance()) },
+      ],
+      sections: [
+        {
+          rows: this.balanceRows(),
+          totals: {
+            Opening: sum(rows, (row) => row.opening),
+            Debit: sum(rows, (row) => row.debit),
+            Credit: sum(rows, (row) => row.credit),
+            Balance: sum(rows, (row) => row.balance),
+          },
+          emptyMessage: 'No parties match this search.',
+        },
+      ],
+    });
+  }
+
+  /** The statement of account posted or emailed to one party. */
+  protected printStatement(): void {
+    const name = this.selectedName();
+    this.print.document({
+      title: this.isCustomer() ? 'Statement of account' : 'Supplier statement',
+      documentNo: name || '—',
+      status: this.closing() > 0.5 ? 'Outstanding' : 'Clear',
+      filename: `${name || 'party'}-statement`,
+      meta: [
+        { label: 'Period', value: dateRange(this.from(), this.to()) },
+        { label: 'Entries', value: String(this.statement().length) },
+      ],
+      parties: [{ heading: this.isCustomer() ? 'Customer' : 'Supplier', lines: [name || '—'] }],
+      section: {
+        columns: [
+          { key: 'Date', align: 'left' },
+          { key: 'Document', align: 'left' },
+          { key: 'Particulars', align: 'left' },
+          { key: 'Debit', align: 'right' },
+          { key: 'Credit', align: 'right' },
+          { key: 'Balance', align: 'right' },
+        ],
+        rows: this.statementRows(),
+        totals: { Debit: this.totalDebit(), Credit: this.totalCredit() },
+        emptyMessage: 'No movements in this period.',
+      },
+      totals: [
+        { label: 'Total debit', value: currency(this.totalDebit()) },
+        { label: 'Total credit', value: currency(this.totalCredit()) },
+        { label: 'Closing balance', value: currency(this.closing()), strong: true },
+      ],
+      note: this.isCustomer()
+        ? 'Please quote the document number when settling any of the above.'
+        : undefined,
+      signatures: ['Prepared by', 'Verified by'],
+    });
   }
 }

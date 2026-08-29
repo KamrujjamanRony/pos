@@ -3,8 +3,18 @@ import { firstValueFrom } from 'rxjs';
 import { COURIER_CONDITIONS, type SalesEntry } from '../../core/models';
 import { ListStore } from '../../core/services/list-store';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { addDays, currency, hueOf, initials, shortDate, sum, today } from '../../core/util/format';
+import {
+  addDays,
+  currency,
+  dateRange,
+  hueOf,
+  initials,
+  shortDate,
+  sum,
+  today,
+} from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiIcon } from '../../shared/ui/icon';
@@ -30,13 +40,21 @@ import { UiBadge, UiEmpty, UiPageHeader, UiSkeleton, type Tone } from '../../sha
         searchLabel="Find a parcel"
         placeholder="Invoice number or customer…"
         (refresh)="reload()"
+        (printed)="printPdf()"
       />
 
       <div class="grid gap-4 lg:grid-cols-4">
         @for (column of board(); track column.value) {
-          <section class="surface-card flex flex-col overflow-hidden" [attr.aria-label]="column.label">
+          <section
+            class="surface-card flex flex-col overflow-hidden"
+            [attr.aria-label]="column.label"
+          >
             <header class="flex items-center gap-2.5 border-b border-line px-3.5 py-3">
-              <span class="size-2 rounded-full" [class]="dotClass(column.tone)" aria-hidden="true"></span>
+              <span
+                class="size-2 rounded-full"
+                [class]="dotClass(column.tone)"
+                aria-hidden="true"
+              ></span>
               <h2 class="flex-1 text-[13px] font-semibold text-ink">{{ column.label }}</h2>
               <ui-badge [tone]="column.tone">{{ column.rows.length }}</ui-badge>
             </header>
@@ -143,6 +161,7 @@ import { UiBadge, UiEmpty, UiPageHeader, UiSkeleton, type Tone } from '../../sha
 export class CourierBoardPage {
   private readonly api = inject(PosApi);
   private readonly toast = inject(ToastService);
+  private readonly print = inject(PrintService);
 
   protected readonly currency = currency;
   protected readonly date = shortDate;
@@ -193,6 +212,41 @@ export class CourierBoardPage {
 
   protected reload(): void {
     void this.store.load({ fromDate: this.from(), toDate: this.to() });
+  }
+
+  /** A picking list: one section per courier stage, in board order. */
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Courier board',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'courier-board',
+      filters: [{ label: 'Search', value: this.search() || 'All parcels' }],
+      summary: [
+        { label: 'Parcels', value: String(this.parcels().length) },
+        { label: 'In transit value', value: currency(this.inTransitValue()) },
+        { label: 'Delivered', value: String(this.deliveredCount()) },
+        { label: 'Returned', value: String(this.returnedCount()) },
+      ],
+      sections: this.board().map((column) => ({
+        heading: `${column.label} (${column.rows.length})`,
+        columns: [
+          { key: 'Invoice', align: 'left' as const },
+          { key: 'Date', align: 'left' as const },
+          { key: 'Customer', align: 'left' as const },
+          { key: 'Courier', align: 'left' as const },
+          { key: 'Net', align: 'right' as const },
+        ],
+        rows: column.rows.map((row) => ({
+          Invoice: row.invoiceNo,
+          Date: row.invoiceDate,
+          Customer: row.customerName || 'Walk-in',
+          Courier: row.courierName ?? '—',
+          Net: row.netAmount ?? 0,
+        })),
+        totals: { Net: sum(column.rows, (row) => row.netAmount ?? 0) },
+        emptyMessage: `Nothing ${column.label.toLowerCase()}.`,
+      })),
+    });
   }
 
   protected dotClass(tone: Tone): string {

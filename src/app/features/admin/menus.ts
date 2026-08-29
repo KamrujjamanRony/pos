@@ -4,6 +4,7 @@ import type { MenuItem, PermissionKey } from '../../core/models';
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { downloadCsv } from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
@@ -46,6 +47,7 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
         placeholder="Name or URL…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <div class="grid gap-4 xl:grid-cols-[1fr_20rem]">
@@ -67,7 +69,9 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
               <li>
                 <div class="flex items-center gap-2 rounded-lg bg-surface-2/60 px-2.5 py-2">
                   <ui-icon name="chevronRight" [size]="13" class="text-faint" />
-                  <span class="flex-1 truncate text-[13px] font-medium text-ink">{{ root.menuName }}</span>
+                  <span class="flex-1 truncate text-[13px] font-medium text-ink">{{
+                    root.menuName
+                  }}</span>
                   <span class="font-mono text-[11px] text-faint">{{ root.serialNo }}</span>
                 </div>
                 @if (childrenOf(root.id).length) {
@@ -88,8 +92,20 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit menu" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete menu" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit menu"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete menu"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -101,10 +117,24 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
     >
       <div class="grid gap-4 sm:grid-cols-2">
         <ui-field label="Menu name" for="m-name" [required]="true">
-          <input id="m-name" uiAutofocus type="text" class="ctl" [value]="menuName()" (input)="menuName.set($any($event.target).value)" />
+          <input
+            id="m-name"
+            uiAutofocus
+            type="text"
+            class="ctl"
+            [value]="menuName()"
+            (input)="menuName.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="URL" for="m-url" [required]="true">
-          <input id="m-url" type="text" class="ctl" placeholder="/sales/invoices" [value]="url()" (input)="url.set($any($event.target).value)" />
+          <input
+            id="m-url"
+            type="text"
+            class="ctl"
+            placeholder="/sales/invoices"
+            [value]="url()"
+            (input)="url.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Parent" hint="Leave empty for a top-level entry.">
           <ui-combobox
@@ -116,10 +146,23 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
           />
         </ui-field>
         <ui-field label="Icon" for="m-icon">
-          <input id="m-icon" type="text" class="ctl" placeholder="cart" [value]="icon()" (input)="icon.set($any($event.target).value)" />
+          <input
+            id="m-icon"
+            type="text"
+            class="ctl"
+            placeholder="cart"
+            [value]="icon()"
+            (input)="icon.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Serial number" for="m-serial" hint="Controls the order in the sidebar.">
-          <input id="m-serial" type="number" class="ctl" [value]="serialNo()" (input)="serialNo.set(+$any($event.target).value || 0)" />
+          <input
+            id="m-serial"
+            type="number"
+            class="ctl"
+            [value]="serialNo()"
+            (input)="serialNo.set(+$any($event.target).value || 0)"
+          />
         </ui-field>
         <ui-field label="Permission keys">
           <div class="flex flex-wrap gap-1.5 pt-1">
@@ -144,7 +187,13 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!menuName().trim()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!menuName().trim()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save menu' : 'Register menu' }}
         </ui-button>
       </div>
@@ -156,6 +205,7 @@ export class MenusPage {
   private readonly api = inject(PosApi);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
+  private readonly print = inject(PrintService);
 
   protected readonly allPermissions = ALL_PERMISSIONS;
   protected readonly idOf = (row: { id: number }) => row.id;
@@ -184,7 +234,14 @@ export class MenusPage {
       sub: (row) => (row.parentId ? `Under ${this.nameOfMenu(row.parentId)}` : 'Top level'),
     },
     { key: 'url', header: 'URL', value: (row) => row.url, kind: 'mono' },
-    { key: 'serialNo', header: 'Order', value: (row) => row.serialNo, kind: 'number', align: 'right', hideOnMobile: true },
+    {
+      key: 'serialNo',
+      header: 'Order',
+      value: (row) => row.serialNo,
+      kind: 'number',
+      align: 'right',
+      hideOnMobile: true,
+    },
     {
       key: 'permissionsKey',
       header: 'Permissions',
@@ -203,9 +260,7 @@ export class MenusPage {
   });
 
   protected readonly tree = computed(() =>
-    [...this.store.rows()]
-      .filter((row) => !row.parentId)
-      .sort((a, b) => a.serialNo - b.serialNo),
+    [...this.store.rows()].filter((row) => !row.parentId).sort((a, b) => a.serialNo - b.serialNo),
   );
 
   protected readonly parentOptions = computed(() =>
@@ -291,17 +346,39 @@ export class MenusPage {
     this.toast.success('Menu deleted', `${row.menuName} was removed from the registry.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Menu: row.menuName,
+      Parent: row.parentId ? this.nameOfMenu(row.parentId) : '',
+      URL: row.url,
+      Icon: row.icon,
+      Order: row.serialNo,
+      Permissions: (row.permissionsKey ?? []).join(' '),
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'menus',
-      this.filtered().map((row) => ({
-        Menu: row.menuName,
-        Parent: row.parentId ? this.nameOfMenu(row.parentId) : '',
-        URL: row.url,
-        Icon: row.icon,
-        Order: row.serialNo,
-        Permissions: (row.permissionsKey ?? []).join(' '),
-      })),
-    );
+    downloadCsv('menus', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Menu registry',
+      subtitle: 'Every screen the app can grant access to',
+      filename: 'menus',
+      landscape: true,
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: [
+        { label: 'Menus registered', value: String(this.filtered().length) },
+        { label: 'Top level', value: String(this.tree().length) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          emptyMessage: 'Nothing registered yet.',
+        },
+      ],
+    });
   }
 }

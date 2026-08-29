@@ -4,6 +4,7 @@ import type { AppUser, MenuPermissionNode, PermissionKey } from '../../core/mode
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { downloadCsv, prettyDate } from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
@@ -18,16 +19,7 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
 
 @Component({
   selector: 'app-users',
-  imports: [
-    UiPageHeader,
-    UiFilterBar,
-    UiTable,
-    UiButton,
-    UiModal,
-    UiField,
-    UiIcon,
-    UiAutofocus,
-  ],
+  imports: [UiPageHeader, UiFilterBar, UiTable, UiButton, UiModal, UiField, UiIcon, UiAutofocus],
   template: `
     <div class="space-y-4">
       <ui-page-header
@@ -44,6 +36,7 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
         placeholder="Username…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -58,8 +51,20 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="edit" ariaLabel="Edit user" (pressed)="openEdit(row)" />
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete user" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="edit"
+          ariaLabel="Edit user"
+          (pressed)="openEdit(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete user"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -72,17 +77,38 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
       <div class="space-y-5">
         <div class="grid gap-4 sm:grid-cols-3">
           <ui-field label="Username" for="u-name" [required]="true">
-            <input id="u-name" uiAutofocus type="text" class="ctl" [value]="userName()" (input)="userName.set($any($event.target).value)" />
+            <input
+              id="u-name"
+              uiAutofocus
+              type="text"
+              class="ctl"
+              [value]="userName()"
+              (input)="userName.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field
             label="Password"
             for="u-password"
-            [hint]="editing() ? 'Leave blank to keep the current password.' : 'At least 8 characters.'"
+            [hint]="
+              editing() ? 'Leave blank to keep the current password.' : 'At least 8 characters.'
+            "
           >
-            <input id="u-password" type="password" class="ctl" autocomplete="new-password" [value]="password()" (input)="password.set($any($event.target).value)" />
+            <input
+              id="u-password"
+              type="password"
+              class="ctl"
+              autocomplete="new-password"
+              [value]="password()"
+              (input)="password.set($any($event.target).value)"
+            />
           </ui-field>
           <ui-field label="Status" for="u-active">
-            <select id="u-active" class="ctl" [value]="isActive() ? 'true' : 'false'" (change)="isActive.set($any($event.target).value === 'true')">
+            <select
+              id="u-active"
+              class="ctl"
+              [value]="isActive() ? 'true' : 'false'"
+              (change)="isActive.set($any($event.target).value === 'true')"
+            >
               <option value="true">Active</option>
               <option value="false">Suspended</option>
             </select>
@@ -90,10 +116,14 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
         </div>
 
         <div class="overflow-hidden rounded-xl border border-line">
-          <div class="flex items-center justify-between border-b border-line bg-surface-2/60 px-3.5 py-2.5">
+          <div
+            class="flex items-center justify-between border-b border-line bg-surface-2/60 px-3.5 py-2.5"
+          >
             <h3 class="text-[13px] font-semibold text-ink">Screen access</h3>
             <div class="flex gap-1.5">
-              <ui-button variant="ghost" size="sm" (pressed)="selectAll(true)">Select all</ui-button>
+              <ui-button variant="ghost" size="sm" (pressed)="selectAll(true)"
+                >Select all</ui-button
+              >
               <ui-button variant="ghost" size="sm" (pressed)="selectAll(false)">Clear</ui-button>
             </div>
           </div>
@@ -139,14 +169,20 @@ const ALL_PERMISSIONS: PermissionKey[] = ['view', 'create', 'edit', 'delete'];
 
         <p class="flex items-center gap-2 text-[12.5px] text-faint">
           <ui-icon name="info" [size]="14" />
-          Permissions are sent exactly as the API models them: a menu id, a selected flag and a
-          list of permission keys.
+          Permissions are sent exactly as the API models them: a menu id, a selected flag and a list
+          of permission keys.
         </p>
       </div>
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="editorOpen.set(false)">Cancel</ui-button>
-        <ui-button variant="primary" icon="save" [loading]="saving()" [disabled]="!userName().trim()" (pressed)="save()">
+        <ui-button
+          variant="primary"
+          icon="save"
+          [loading]="saving()"
+          [disabled]="!userName().trim()"
+          (pressed)="save()"
+        >
           {{ editing() ? 'Save access' : 'Create user' }}
         </ui-button>
       </div>
@@ -158,6 +194,7 @@ export class UsersPage {
   private readonly api = inject(PosApi);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
+  private readonly print = inject(PrintService);
 
   protected readonly allPermissions = ALL_PERMISSIONS;
 
@@ -327,16 +364,38 @@ export class UsersPage {
     this.toast.success('User deleted', `${user.userName} can no longer sign in.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Username: row.userName,
+      Active: row.isActive ? 'Yes' : 'No',
+      'Screens granted': this.grantedCount(row),
+      'Created by': row.postBy ?? '',
+      Created: prettyDate(row.postDate),
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'users',
-      this.filtered().map((row) => ({
-        Username: row.userName,
-        Active: row.isActive ? 'Yes' : 'No',
-        'Screens granted': this.grantedCount(row),
-        'Created by': row.postBy ?? '',
-        Created: prettyDate(row.postDate),
-      })),
-    );
+    downloadCsv('users', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Users & access',
+      subtitle: 'Operator accounts and how much of the app each one can reach',
+      filename: 'users',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: [
+        { label: 'Accounts', value: String(rows.length) },
+        { label: 'Active', value: String(rows.filter((row) => row.isActive).length) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          emptyMessage: 'No user accounts yet.',
+        },
+      ],
+    });
   }
 }

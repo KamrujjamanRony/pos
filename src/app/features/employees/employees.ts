@@ -6,8 +6,17 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { currency, downloadCsv, hueOf, initials, prettyDate, sum, today } from '../../core/util/format';
+import {
+  currency,
+  downloadCsv,
+  hueOf,
+  initials,
+  prettyDate,
+  sum,
+  today,
+} from '../../core/util/format';
 import { UiAutofocus } from '../../shared/directives/motion';
 import { UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
@@ -44,9 +53,28 @@ import { UiStat } from '../../shared/ui/stat';
       </ui-page-header>
 
       <div class="grid gap-4 sm:grid-cols-3">
-        <ui-stat label="Headcount" [value]="rows().length" format="integer" icon="users" [series]="1" />
-        <ui-stat label="Active" [value]="activeCount()" format="integer" icon="checkCircle" [series]="3" />
-        <ui-stat label="Monthly payroll" [value]="payroll()" format="money" prefix="৳" icon="money" [series]="6" />
+        <ui-stat
+          label="Headcount"
+          [value]="rows().length"
+          format="integer"
+          icon="users"
+          [series]="1"
+        />
+        <ui-stat
+          label="Active"
+          [value]="activeCount()"
+          format="integer"
+          icon="checkCircle"
+          [series]="3"
+        />
+        <ui-stat
+          label="Monthly payroll"
+          [value]="payroll()"
+          format="money"
+          prefix="৳"
+          icon="money"
+          [series]="6"
+        />
       </div>
 
       <ui-filter-bar
@@ -55,10 +83,18 @@ import { UiStat } from '../../shared/ui/stat';
         placeholder="Name, code, mobile, email…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-44">
-          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="emp-branch">Branch</label>
-          <select id="emp-branch" class="ctl" [value]="branchFilter()" (change)="branchFilter.set($any($event.target).value)">
+          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="emp-branch"
+            >Branch</label
+          >
+          <select
+            id="emp-branch"
+            class="ctl"
+            [value]="branchFilter()"
+            (change)="branchFilter.set($any($event.target).value)"
+          >
             <option value="">All branches</option>
             @for (branch of lookups.branches(); track branch.id) {
               <option [value]="branch.id">{{ branch.name }}</option>
@@ -90,8 +126,12 @@ import { UiStat } from '../../shared/ui/stat';
                 <div class="min-w-0 flex-1">
                   <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0">
-                      <h3 class="truncate text-[14.5px] font-semibold text-ink">{{ person.employeeName }}</h3>
-                      <p class="truncate font-mono text-[11.5px] text-brand-text">{{ person.employeeCode }}</p>
+                      <h3 class="truncate text-[14.5px] font-semibold text-ink">
+                        {{ person.employeeName }}
+                      </h3>
+                      <p class="truncate font-mono text-[11.5px] text-brand-text">
+                        {{ person.employeeCode }}
+                      </p>
                     </div>
                     <ui-badge [tone]="person.isActive ? 'pos' : 'neutral'">
                       {{ person.isActive ? 'Active' : 'Inactive' }}
@@ -125,7 +165,9 @@ import { UiStat } from '../../shared/ui/stat';
               <div
                 class="mt-3.5 flex items-center gap-1 border-t border-line pt-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus-within:opacity-100"
               >
-                <ui-button variant="ghost" size="sm" icon="edit" (pressed)="openEdit(person)">Edit</ui-button>
+                <ui-button variant="ghost" size="sm" icon="edit" (pressed)="openEdit(person)"
+                  >Edit</ui-button
+                >
                 <ui-button variant="ghost" size="sm" icon="file" (pressed)="openDocuments(person)">
                   Documents ({{ person.documents.length }})
                 </ui-button>
@@ -158,50 +200,134 @@ import { UiStat } from '../../shared/ui/stat';
     >
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <ui-field label="Employee code" for="e-code" [required]="true">
-          <input id="e-code" uiAutofocus type="text" class="ctl" [value]="employeeCode()" (input)="employeeCode.set($any($event.target).value)" />
+          <input
+            id="e-code"
+            uiAutofocus
+            type="text"
+            class="ctl"
+            [value]="employeeCode()"
+            (input)="employeeCode.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Full name" for="e-name" [required]="true" class="sm:col-span-2">
-          <input id="e-name" type="text" class="ctl" [value]="employeeName()" (input)="employeeName.set($any($event.target).value)" />
+          <input
+            id="e-name"
+            type="text"
+            class="ctl"
+            [value]="employeeName()"
+            (input)="employeeName.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Father's name" for="e-father">
-          <input id="e-father" type="text" class="ctl" [value]="fatherName()" (input)="fatherName.set($any($event.target).value)" />
+          <input
+            id="e-father"
+            type="text"
+            class="ctl"
+            [value]="fatherName()"
+            (input)="fatherName.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Date of birth" for="e-dob">
-          <input id="e-dob" type="date" class="ctl" [value]="dateOfBirth()" (change)="dateOfBirth.set($any($event.target).value)" />
+          <input
+            id="e-dob"
+            type="date"
+            class="ctl"
+            [value]="dateOfBirth()"
+            (change)="dateOfBirth.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Gender" for="e-gender">
-          <select id="e-gender" class="ctl" [value]="gender()" (change)="gender.set($any($event.target).value)">
+          <select
+            id="e-gender"
+            class="ctl"
+            [value]="gender()"
+            (change)="gender.set($any($event.target).value)"
+          >
             <option value="Male">Male</option>
             <option value="Female">Female</option>
             <option value="Other">Other</option>
           </select>
         </ui-field>
         <ui-field label="Blood group" for="e-blood">
-          <input id="e-blood" type="text" class="ctl" [value]="bloodGroup()" (input)="bloodGroup.set($any($event.target).value)" />
+          <input
+            id="e-blood"
+            type="text"
+            class="ctl"
+            [value]="bloodGroup()"
+            (input)="bloodGroup.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Mobile number" for="e-mobile">
-          <input id="e-mobile" type="tel" class="ctl" [value]="mobileNumber()" (input)="mobileNumber.set($any($event.target).value)" />
+          <input
+            id="e-mobile"
+            type="tel"
+            class="ctl"
+            [value]="mobileNumber()"
+            (input)="mobileNumber.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Email" for="e-email">
-          <input id="e-email" type="email" class="ctl" [value]="email()" (input)="email.set($any($event.target).value)" />
+          <input
+            id="e-email"
+            type="email"
+            class="ctl"
+            [value]="email()"
+            (input)="email.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="NID number" for="e-nid">
-          <input id="e-nid" type="text" class="ctl" [value]="nidNumber()" (input)="nidNumber.set($any($event.target).value)" />
+          <input
+            id="e-nid"
+            type="text"
+            class="ctl"
+            [value]="nidNumber()"
+            (input)="nidNumber.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Branch">
-          <ui-combobox [options]="lookups.branches()" [labelOf]="nameOf" [keyOf]="idOf" [(value)]="branchId" placeholder="Assign a branch" />
+          <ui-combobox
+            [options]="lookups.branches()"
+            [labelOf]="nameOf"
+            [keyOf]="idOf"
+            [(value)]="branchId"
+            placeholder="Assign a branch"
+          />
         </ui-field>
         <ui-field label="Department">
-          <ui-combobox [options]="lookups.departments()" [labelOf]="nameOf" [keyOf]="idOf" [(value)]="departmentId" placeholder="Assign a department" />
+          <ui-combobox
+            [options]="lookups.departments()"
+            [labelOf]="nameOf"
+            [keyOf]="idOf"
+            [(value)]="departmentId"
+            placeholder="Assign a department"
+          />
         </ui-field>
         <ui-field label="Joining date" for="e-joining">
-          <input id="e-joining" type="date" class="ctl" [value]="joiningDate()" (change)="joiningDate.set($any($event.target).value)" />
+          <input
+            id="e-joining"
+            type="date"
+            class="ctl"
+            [value]="joiningDate()"
+            (change)="joiningDate.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Salary" for="e-salary">
-          <input id="e-salary" type="number" class="ctl" [value]="salary()" (input)="salary.set(+$any($event.target).value || 0)" />
+          <input
+            id="e-salary"
+            type="number"
+            class="ctl"
+            [value]="salary()"
+            (input)="salary.set(+$any($event.target).value || 0)"
+          />
         </ui-field>
         <ui-field label="Present address" for="e-address" class="sm:col-span-2">
-          <input id="e-address" type="text" class="ctl" [value]="presentAddress()" (input)="presentAddress.set($any($event.target).value)" />
+          <input
+            id="e-address"
+            type="text"
+            class="ctl"
+            [value]="presentAddress()"
+            (input)="presentAddress.set($any($event.target).value)"
+          />
         </ui-field>
         <ui-field label="Photo" for="e-photo" hint="Sent as PhotoFile in the multipart body.">
           <input
@@ -213,7 +339,12 @@ import { UiStat } from '../../shared/ui/stat';
           />
         </ui-field>
         <ui-field label="Status" for="e-active">
-          <select id="e-active" class="ctl" [value]="isActive() ? 'true' : 'false'" (change)="isActive.set($any($event.target).value === 'true')">
+          <select
+            id="e-active"
+            class="ctl"
+            [value]="isActive() ? 'true' : 'false'"
+            (change)="isActive.set($any($event.target).value === 'true')"
+          >
             <option value="true">Active</option>
             <option value="false">Inactive</option>
           </select>
@@ -246,11 +377,15 @@ import { UiStat } from '../../shared/ui/stat';
           <ul class="space-y-2">
             @for (document of person.documents; track document.id) {
               <li class="flex items-center gap-3 rounded-xl border border-line bg-surface-2/50 p-3">
-                <span class="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand-text">
+                <span
+                  class="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-soft text-brand-text"
+                >
                   <ui-icon name="file" [size]="16" />
                 </span>
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-[13px] font-medium text-ink">{{ document.documentTitle }}</p>
+                  <p class="truncate text-[13px] font-medium text-ink">
+                    {{ document.documentTitle }}
+                  </p>
                   <p class="truncate text-[11.5px] text-faint">
                     {{ document.documentType }} · {{ document.fileName }}
                   </p>
@@ -258,7 +393,11 @@ import { UiStat } from '../../shared/ui/stat';
               </li>
             } @empty {
               <li>
-                <ui-empty title="No documents yet" message="Upload a CV, certificate or NID scan." icon="file" />
+                <ui-empty
+                  title="No documents yet"
+                  message="Upload a CV, certificate or NID scan."
+                  icon="file"
+                />
               </li>
             }
           </ul>
@@ -267,10 +406,22 @@ import { UiStat } from '../../shared/ui/stat';
             <p class="text-[13px] font-semibold text-ink">Upload a document</p>
             <div class="grid gap-3 sm:grid-cols-2">
               <ui-field label="Type" for="d-type">
-                <input id="d-type" type="text" class="ctl" [value]="documentType()" (input)="documentType.set($any($event.target).value)" />
+                <input
+                  id="d-type"
+                  type="text"
+                  class="ctl"
+                  [value]="documentType()"
+                  (input)="documentType.set($any($event.target).value)"
+                />
               </ui-field>
               <ui-field label="Title" for="d-title">
-                <input id="d-title" type="text" class="ctl" [value]="documentTitle()" (input)="documentTitle.set($any($event.target).value)" />
+                <input
+                  id="d-title"
+                  type="text"
+                  class="ctl"
+                  [value]="documentTitle()"
+                  (input)="documentTitle.set($any($event.target).value)"
+                />
               </ui-field>
             </div>
             <ui-field label="File" for="d-file">
@@ -307,6 +458,7 @@ export class EmployeesPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly currency = currency;
   protected readonly date = prettyDate;
@@ -363,7 +515,10 @@ export class EmployeesPage {
 
   protected readonly activeCount = computed(() => this.rows().filter((row) => row.isActive).length);
   protected readonly payroll = computed(() =>
-    sum(this.rows().filter((row) => row.isActive), (row) => row.salary),
+    sum(
+      this.rows().filter((row) => row.isActive),
+      (row) => row.salary,
+    ),
   );
 
   constructor() {
@@ -522,20 +677,48 @@ export class EmployeesPage {
     void this.lookups.refresh('employees');
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Code: row.employeeCode,
+      Name: row.employeeName,
+      Branch: row.branchName,
+      Department: row.departmentName,
+      Mobile: row.mobileNumber,
+      Email: row.email,
+      Joined: row.joiningDate,
+      Salary: row.salary,
+      Active: row.isActive ? 'Yes' : 'No',
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'employees',
-      this.filtered().map((row) => ({
-        Code: row.employeeCode,
-        Name: row.employeeName,
-        Branch: row.branchName,
-        Department: row.departmentName,
-        Mobile: row.mobileNumber,
-        Email: row.email,
-        Joined: row.joiningDate,
-        Salary: row.salary,
-        Active: row.isActive ? 'Yes' : 'No',
-      })),
-    );
+    downloadCsv('employees', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const branch = this.lookups.branches().find((row) => String(row.id) === this.branchFilter());
+    this.print.report({
+      title: 'Employees',
+      subtitle: `${this.filtered().length} of ${this.rows().length} on the register`,
+      filename: 'employees',
+      landscape: true,
+      filters: [
+        { label: 'Branch', value: branch?.name ?? 'All branches' },
+        { label: 'Search', value: this.search() || 'All records' },
+      ],
+      summary: [
+        { label: 'Headcount', value: String(this.filtered().length) },
+        { label: 'Active', value: String(this.activeCount()) },
+        { label: 'Monthly payroll', value: currency(this.payroll()) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: { Salary: sum(this.filtered(), (row) => row.salary) },
+          emptyMessage: 'No employees match this search.',
+        },
+      ],
+    });
   }
 }

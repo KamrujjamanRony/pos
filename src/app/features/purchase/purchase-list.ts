@@ -5,8 +5,19 @@ import type { PurchaseEntry } from '../../core/models';
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { addDays, currency, downloadCsv, money, prettyDate, sum, today } from '../../core/util/format';
+import {
+  addDays,
+  amountInWords,
+  currency,
+  dateRange,
+  downloadCsv,
+  money,
+  prettyDate,
+  sum,
+  today,
+} from '../../core/util/format';
 import { buttonClass, UiButton } from '../../shared/ui/button';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiIcon } from '../../shared/ui/icon';
@@ -48,10 +59,18 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Invoice number, supplier, receipt…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-40">
-          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="pl-status">Settlement</label>
-          <select id="pl-status" class="ctl" [value]="status()" (change)="status.set($any($event.target).value)">
+          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="pl-status"
+            >Settlement</label
+          >
+          <select
+            id="pl-status"
+            class="ctl"
+            [value]="status()"
+            (change)="status.set($any($event.target).value)"
+          >
             <option value="all">All entries</option>
             <option value="due">Unpaid balance</option>
             <option value="settled">Fully paid</option>
@@ -73,11 +92,34 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
     <ng-template #rowActions let-row>
       <div class="flex justify-end gap-1">
-        <ui-button variant="ghost" size="icon" icon="eye" ariaLabel="View purchase" (pressed)="openDetail(row)" />
-        <a [class]="iconButton" [routerLink]="['/purchase/entries', row.id]" aria-label="Edit purchase">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="eye"
+          ariaLabel="View purchase"
+          (pressed)="openDetail(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="printer"
+          ariaLabel="Print purchase entry"
+          (pressed)="printEntry(row)"
+        />
+        <a
+          [class]="iconButton"
+          [routerLink]="['/purchase/entries', row.id]"
+          aria-label="Edit purchase"
+        >
           <ui-icon name="edit" [size]="16" />
         </a>
-        <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete purchase" (pressed)="remove(row)" />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete purchase"
+          (pressed)="remove(row)"
+        />
       </div>
     </ng-template>
 
@@ -113,10 +155,26 @@ import { UiTable, type Column } from '../../shared/ui/table';
             <table class="w-full text-left text-[13px]">
               <thead class="bg-surface-2">
                 <tr>
-                  <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Item</th>
-                  <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Qty</th>
-                  <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Cost</th>
-                  <th class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Amount</th>
+                  <th
+                    class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Item
+                  </th>
+                  <th
+                    class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Qty
+                  </th>
+                  <th
+                    class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Cost
+                  </th>
+                  <th
+                    class="px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Amount
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -153,7 +211,10 @@ import { UiTable, type Column } from '../../shared/ui/table';
             </div>
             <div class="flex justify-between">
               <dt class="text-muted">Payable</dt>
-              <dd class="num font-semibold" [class]="(entry.dueAmount ?? 0) > 0.5 ? 'text-warn' : 'text-pos'">
+              <dd
+                class="num font-semibold"
+                [class]="(entry.dueAmount ?? 0) > 0.5 ? 'text-warn' : 'text-pos'"
+              >
                 {{ money(entry.dueAmount) }}
               </dd>
             </div>
@@ -163,6 +224,11 @@ import { UiTable, type Column } from '../../shared/ui/table';
 
       <div modal-footer class="flex gap-2">
         <ui-button variant="ghost" (pressed)="detailOpen.set(false)">Close</ui-button>
+        @if (selected(); as entry) {
+          <ui-button variant="outline" icon="printer" (pressed)="printEntry(entry)">
+            Print / PDF
+          </ui-button>
+        }
         <a [class]="primaryButton" [routerLink]="['/purchase/entries', selected()?.id]">
           <ui-icon name="edit" [size]="16" />
           Edit entry
@@ -176,6 +242,7 @@ export class PurchaseListPage {
   private readonly api = inject(PosApi);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly currency = currency;
@@ -195,8 +262,20 @@ export class PurchaseListPage {
   );
 
   protected readonly columns: Column<PurchaseEntry>[] = [
-    { key: 'invoiceNo', header: 'Entry', value: (row) => row.invoiceNo, kind: 'mono', width: '130px' },
-    { key: 'receiptDate', header: 'Date', value: (row) => row.receiptDate, kind: 'date', width: '120px' },
+    {
+      key: 'invoiceNo',
+      header: 'Entry',
+      value: (row) => row.invoiceNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'receiptDate',
+      header: 'Date',
+      value: (row) => row.receiptDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'supplierName',
       header: 'Supplier',
@@ -204,7 +283,13 @@ export class PurchaseListPage {
       kind: 'strong',
       sub: (row) => `${row.details.length} lines · ${row.receiptNo}`,
     },
-    { key: 'netAmount', header: 'Net', value: (row) => row.netAmount ?? 0, kind: 'money', align: 'right' },
+    {
+      key: 'netAmount',
+      header: 'Net',
+      value: (row) => row.netAmount ?? 0,
+      kind: 'money',
+      align: 'right',
+    },
     {
       key: 'cashPayment',
       header: 'Paid',
@@ -213,7 +298,13 @@ export class PurchaseListPage {
       align: 'right',
       hideOnMobile: true,
     },
-    { key: 'dueAmount', header: 'Payable', value: (row) => row.dueAmount ?? 0, kind: 'money', align: 'right' },
+    {
+      key: 'dueAmount',
+      header: 'Payable',
+      value: (row) => row.dueAmount ?? 0,
+      kind: 'money',
+      align: 'right',
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -260,19 +351,106 @@ export class PurchaseListPage {
     this.toast.success('Purchase deleted', `${row.invoiceNo} was removed and stock was reversed.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Entry: row.invoiceNo,
+      Date: row.receiptDate,
+      Supplier: row.supplierName,
+      Reference: row.receiptNo,
+      Lines: row.details.length,
+      Net: row.netAmount,
+      Paid: row.cashPayment,
+      Payable: row.dueAmount,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'purchase-entries',
-      this.filtered().map((row) => ({
-        Entry: row.invoiceNo,
-        Date: row.receiptDate,
-        Supplier: row.supplierName,
-        Reference: row.receiptNo,
-        Lines: row.details.length,
-        Net: row.netAmount,
-        Paid: row.cashPayment,
-        Payable: row.dueAmount,
-      })),
-    );
+    downloadCsv('purchase-entries', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Purchase entries',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'purchase-entries',
+      filters: [
+        { label: 'Settlement', value: this.statusLabel() },
+        { label: 'Search', value: this.search() || 'All records' },
+      ],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Lines: sum(rows, (row) => row.details.length),
+            Net: sum(rows, (row) => row.netAmount ?? 0),
+            Paid: sum(rows, (row) => row.cashPayment),
+            Payable: sum(rows, (row) => row.dueAmount ?? 0),
+          },
+          emptyMessage: 'No purchases in this window.',
+        },
+      ],
+    });
+  }
+
+  /** The goods receipt itself, on a letterhead. */
+  protected printEntry(entry: PurchaseEntry): void {
+    this.print.document({
+      title: 'Purchase entry',
+      documentNo: entry.invoiceNo,
+      status: (entry.dueAmount ?? 0) > 0.5 ? 'Payable' : 'Settled',
+      filename: `purchase-${entry.invoiceNo}`,
+      meta: [
+        { label: 'Received', value: prettyDate(entry.receiptDate) },
+        { label: 'Branch', value: entry.branchName ?? '—' },
+        { label: 'Supplier reference', value: entry.receiptNo || '—' },
+        { label: 'Payment', value: entry.paymentMode },
+      ],
+      parties: [
+        { heading: 'Supplier', lines: [entry.supplierName || '—'] },
+        { heading: 'Received at', lines: [entry.branchName, entry.remarks] },
+      ],
+      section: {
+        columns: [
+          { key: 'Item', align: 'left' },
+          { key: 'Qty', align: 'right' },
+          { key: 'Cost', align: 'right' },
+          { key: 'Sales price', align: 'right' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: entry.details.map((line) => ({
+          Item: line.itemName ?? '—',
+          Qty: line.quantity,
+          Cost: line.purchasePrice,
+          'Sales price': line.salesPrice,
+          Amount: line.purchasePrice * line.quantity,
+        })),
+        totals: {
+          Qty: sum(entry.details, (line) => line.quantity),
+          Amount: entry.grossAmount ?? 0,
+        },
+      },
+      totals: [
+        { label: 'Gross', value: currency(entry.grossAmount) },
+        { label: 'Discount', value: `− ${currency(entry.discount)}` },
+        { label: 'Net', value: currency(entry.netAmount), strong: true },
+        { label: `Paid (${entry.paymentMode})`, value: currency(entry.cashPayment) },
+        { label: 'Payable', value: currency(entry.dueAmount) },
+      ],
+      amountInWords: amountInWords(entry.netAmount),
+      note: entry.remarks || undefined,
+      signatures: ['Store keeper', 'Authorised signature'],
+    });
+  }
+
+  protected statusLabel(): string {
+    const status = this.status();
+    return status === 'due'
+      ? 'Unpaid balance'
+      : status === 'settled'
+        ? 'Fully paid'
+        : 'All entries';
   }
 }

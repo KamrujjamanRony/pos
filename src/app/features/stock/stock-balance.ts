@@ -3,7 +3,8 @@ import type { StockRow } from '../../core/models';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
-import { currency, downloadCsv, sum, today } from '../../core/util/format';
+import { PrintService } from '../../core/services/print';
+import { currency, downloadCsv, prettyDate, sum, today } from '../../core/util/format';
 import { UiColumns, type Point } from '../../shared/ui/charts';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiSegmented } from '../../shared/ui/overlays';
@@ -25,8 +26,20 @@ import { UiTable, type Column } from '../../shared/ui/table';
       </ui-page-header>
 
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <ui-stat label="Distinct items" [value]="itemCount()" format="integer" icon="tag" [series]="1" />
-        <ui-stat label="Units on hand" [value]="unitsOnHand()" format="integer" icon="box" [series]="3" />
+        <ui-stat
+          label="Distinct items"
+          [value]="itemCount()"
+          format="integer"
+          icon="tag"
+          [series]="1"
+        />
+        <ui-stat
+          label="Units on hand"
+          [value]="unitsOnHand()"
+          format="integer"
+          icon="box"
+          [series]="3"
+        />
         <ui-stat
           label="Stock value at cost"
           [value]="stockValue()"
@@ -51,10 +64,18 @@ import { UiTable, type Column } from '../../shared/ui/table';
         placeholder="Item name, code or category…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-44">
-          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="sb-branch">Branch</label>
-          <select id="sb-branch" class="ctl" [value]="branchId()" (change)="onBranch($any($event.target).value)">
+          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="sb-branch"
+            >Branch</label
+          >
+          <select
+            id="sb-branch"
+            class="ctl"
+            [value]="branchId()"
+            (change)="onBranch($any($event.target).value)"
+          >
             <option value="">All branches</option>
             @for (branch of lookups.branches(); track branch.id) {
               <option [value]="branch.id">{{ branch.name }}</option>
@@ -63,12 +84,23 @@ import { UiTable, type Column } from '../../shared/ui/table';
         </div>
         <div class="w-40">
           <label class="mb-1.5 block text-[12px] font-medium text-muted" for="sb-date">As on</label>
-          <input id="sb-date" type="date" class="ctl" [value]="asOnDate()" (change)="onDate($any($event.target).value)" />
+          <input
+            id="sb-date"
+            type="date"
+            class="ctl"
+            [value]="asOnDate()"
+            (change)="onDate($any($event.target).value)"
+          />
         </div>
       </ui-filter-bar>
 
       @if (view() === 'chart') {
-        <ui-card heading="Top items by stock value" subheading="At cost price" icon="chart" [padded]="false">
+        <ui-card
+          heading="Top items by stock value"
+          subheading="At cost price"
+          icon="chart"
+          [padded]="false"
+        >
           <div class="p-4">
             <ui-columns
               [data]="valueSeries()"
@@ -96,6 +128,7 @@ import { UiTable, type Column } from '../../shared/ui/table';
 export class StockBalancePage {
   private readonly api = inject(PosApi);
   protected readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly search = signal('');
   protected readonly branchId = signal('');
@@ -119,18 +152,46 @@ export class StockBalancePage {
       kind: 'strong',
       sub: (row) => `${row.categoryName} · ${row.branchName}`,
     },
-    { key: 'opening', header: 'Opening', value: (row) => row.opening, kind: 'number', align: 'right', hideOnMobile: true },
-    { key: 'purchase', header: 'In', value: (row) => row.purchase + row.salesReturn + row.transferIn, kind: 'number', align: 'right', hideOnMobile: true },
-    { key: 'sales', header: 'Out', value: (row) => row.sales + row.purchaseReturn + row.transferOut, kind: 'number', align: 'right', hideOnMobile: true },
+    {
+      key: 'opening',
+      header: 'Opening',
+      value: (row) => row.opening,
+      kind: 'number',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'purchase',
+      header: 'In',
+      value: (row) => row.purchase + row.salesReturn + row.transferIn,
+      kind: 'number',
+      align: 'right',
+      hideOnMobile: true,
+    },
+    {
+      key: 'sales',
+      header: 'Out',
+      value: (row) => row.sales + row.purchaseReturn + row.transferOut,
+      kind: 'number',
+      align: 'right',
+      hideOnMobile: true,
+    },
     {
       key: 'balance',
       header: 'Balance',
       value: (row) => row.balance,
       kind: 'badge',
       align: 'right',
-      tone: (row) => (row.balance <= 0 ? 'neg' : row.balance <= row.reorderQuantity ? 'warn' : 'pos'),
+      tone: (row) =>
+        row.balance <= 0 ? 'neg' : row.balance <= row.reorderQuantity ? 'warn' : 'pos',
     },
-    { key: 'value', header: 'Value at cost', value: (row) => row.value, kind: 'money', align: 'right' },
+    {
+      key: 'value',
+      header: 'Value at cost',
+      value: (row) => row.value,
+      kind: 'money',
+      align: 'right',
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -182,26 +243,59 @@ export class StockBalancePage {
     this.reload();
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Code: row.itemCode,
+      Item: row.itemName,
+      Category: row.categoryName,
+      Branch: row.branchName,
+      Opening: row.opening,
+      Purchase: row.purchase,
+      'Sales return': row.salesReturn,
+      'Transfer in': row.transferIn,
+      Sales: row.sales,
+      'Purchase return': row.purchaseReturn,
+      'Transfer out': row.transferOut,
+      Balance: row.balance,
+      Rate: row.rate,
+      Value: row.value,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'stock-balance',
-      this.filtered().map((row) => ({
-        Code: row.itemCode,
-        Item: row.itemName,
-        Category: row.categoryName,
-        Branch: row.branchName,
-        Opening: row.opening,
-        Purchase: row.purchase,
-        'Sales return': row.salesReturn,
-        'Transfer in': row.transferIn,
-        Sales: row.sales,
-        'Purchase return': row.purchaseReturn,
-        'Transfer out': row.transferOut,
-        Balance: row.balance,
-        Rate: row.rate,
-        Value: row.value,
-      })),
-    );
+    downloadCsv('stock-balance', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    const branch = this.lookups.branches().find((row) => String(row.id) === this.branchId());
+    this.print.report({
+      title: 'Stock balance',
+      subtitle: `As at ${prettyDate(this.asOnDate())}`,
+      filename: 'stock-balance',
+      landscape: true,
+      filters: [
+        { label: 'Branch', value: branch?.name ?? 'All branches' },
+        { label: 'Search', value: this.search() || 'All items' },
+      ],
+      summary: [
+        { label: 'Distinct items', value: String(this.itemCount()) },
+        { label: 'Units on hand', value: String(this.unitsOnHand()) },
+        { label: 'Stock value at cost', value: currency(this.stockValue()) },
+        { label: 'Below reorder level', value: String(this.lowCount()) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Balance: sum(rows, (row) => row.balance),
+            Value: sum(rows, (row) => row.value),
+          },
+          emptyMessage: 'No stock matches this selection.',
+        },
+      ],
+    });
   }
 
   protected readonly currency = currency;

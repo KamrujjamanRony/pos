@@ -1,8 +1,9 @@
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import { PosApi } from '../../core/services/pos-api';
 import { Lookups } from '../../core/services/lookups';
+import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import {
   addDays,
   compact,
@@ -56,11 +57,11 @@ type Range = 7 | 30 | 90;
         title="Dashboard"
         [subtitle]="'Trading performance for ' + rangeLabel()"
       >
-        <ui-segmented
-          [options]="rangeOptions"
-          [(value)]="range"
-          ariaLabel="Reporting period"
-        />
+        <ui-segmented [options]="rangeOptions" [(value)]="range" ariaLabel="Reporting period" />
+        <button type="button" [class]="outlineButton" (click)="printPdf()">
+          <ui-icon name="printer" [size]="17" />
+          Print / PDF
+        </button>
         <a [class]="primaryButton" routerLink="/pos">
           <ui-icon name="zap" [size]="17" />
           Open terminal
@@ -195,7 +196,12 @@ type Range = 7 | 30 | 90;
           }
         </ui-card>
 
-        <ui-card heading="Reorder watchlist" subheading="At or below reorder level" icon="alert" uiReveal>
+        <ui-card
+          heading="Reorder watchlist"
+          subheading="At or below reorder level"
+          icon="alert"
+          uiReveal
+        >
           <a card-actions [class]="ghostButton" routerLink="/inventory/stock">Stock balance</a>
           @if (loading()) {
             <ui-skeleton [count]="5" [height]="34" />
@@ -241,10 +247,14 @@ type Range = 7 | 30 | 90;
             <table class="w-full text-left text-sm">
               <thead>
                 <tr class="border-b border-line bg-surface-2/60">
-                  <th class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">
+                  <th
+                    class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
                     Invoice
                   </th>
-                  <th class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase">
+                  <th
+                    class="px-4 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
                     Customer
                   </th>
                   <th
@@ -252,17 +262,24 @@ type Range = 7 | 30 | 90;
                   >
                     Date
                   </th>
-                  <th class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">
+                  <th
+                    class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
                     Net
                   </th>
-                  <th class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">
+                  <th
+                    class="px-4 py-2.5 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
                     Due
                   </th>
                 </tr>
               </thead>
               <tbody>
                 @for (invoice of recent(); track invoice.id; let i = $index) {
-                  <tr class="stagger border-b border-line/70 last:border-0 hover:bg-surface-2/60" [style]="'--i:' + i">
+                  <tr
+                    class="stagger border-b border-line/70 last:border-0 hover:bg-surface-2/60"
+                    [style]="'--i:' + i"
+                  >
                     <td class="px-4 py-2.5 font-mono text-[12.5px] text-brand-text">
                       {{ invoice.invoiceNo }}
                     </td>
@@ -300,10 +317,12 @@ type Range = 7 | 30 | 90;
 export class DashboardPage {
   private readonly api = inject(PosApi);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly date = prettyDate;
   protected readonly primaryButton = buttonClass('primary', 'md');
+  protected readonly outlineButton = buttonClass('outline', 'md');
   protected readonly ghostButton = buttonClass('ghost', 'sm');
 
   protected readonly range = signal<Range>(30);
@@ -340,7 +359,10 @@ export class DashboardPage {
   protected readonly netSales = computed(() => sum(this.daily(), (row) => row.netAmount));
   protected readonly profit = computed(() => sum(this.profits(), (row) => row.profit));
   protected readonly receivables = computed(() =>
-    sum(this.balances().filter((row) => row.balance > 0), (row) => row.balance),
+    sum(
+      this.balances().filter((row) => row.balance > 0),
+      (row) => row.balance,
+    ),
   );
   protected readonly liquidity = computed(() => sum(this.accounts(), (row) => row.balance));
 
@@ -365,8 +387,16 @@ export class DashboardPage {
     this.daily().map((row) => ({ label: shortDate(row.date), value: row.netAmount })),
   );
 
-  protected readonly salesTrend = computed(() => this.daily().slice(-12).map((row) => row.netAmount));
-  protected readonly profitTrend = computed(() => this.profits().slice(-12).map((row) => row.profit));
+  protected readonly salesTrend = computed(() =>
+    this.daily()
+      .slice(-12)
+      .map((row) => row.netAmount),
+  );
+  protected readonly profitTrend = computed(() =>
+    this.profits()
+      .slice(-12)
+      .map((row) => row.profit),
+  );
 
   protected readonly busiestDay = computed(() => {
     const best = [...this.daily()].sort((a, b) => b.netAmount - a.netAmount)[0];
@@ -397,6 +427,66 @@ export class DashboardPage {
   );
 
   protected readonly compactValue = compact;
+
+  /** The dashboard as a one-page management summary. */
+  protected printPdf(): void {
+    this.print.report({
+      title: 'Trading summary',
+      subtitle: this.rangeLabel(),
+      filename: 'trading-summary',
+      filters: [{ label: 'Window', value: `Last ${this.range()} days` }],
+      summary: [
+        { label: 'Net sales', value: currency(this.netSales()) },
+        { label: 'Gross profit', value: currency(this.profit()) },
+        { label: 'Receivables', value: currency(this.receivables()) },
+        { label: 'Cash & bank', value: currency(this.liquidity()) },
+      ],
+      sections: [
+        {
+          heading: 'Best sellers',
+          rows: this.bestSellers().map((row) => ({
+            Item: row.itemName,
+            Units: row.quantity,
+            Revenue: row.amount,
+          })),
+          emptyMessage: 'Nothing sold in this window.',
+        },
+        {
+          heading: 'Cash & bank balances',
+          rows: this.accounts().map((row) => ({
+            Account: row.accountName,
+            Mode: row.mode,
+            In: row.inflow,
+            Out: row.outflow,
+            Balance: row.balance,
+          })),
+          totals: { Balance: this.liquidity() },
+          emptyMessage: 'No accounts configured.',
+        },
+        {
+          heading: 'Below reorder level',
+          rows: this.lowStock().map((row) => ({
+            Item: row.itemName,
+            Branch: row.branchName,
+            Balance: row.balance,
+            'Reorder at': row.reorderQuantity,
+          })),
+          emptyMessage: 'Nothing is below its reorder level.',
+        },
+        {
+          heading: 'Recent invoices',
+          rows: this.recent().map((row) => ({
+            Invoice: row.invoiceNo,
+            Date: row.invoiceDate,
+            Customer: row.customerName ?? 'Walk-in',
+            Net: row.netAmount ?? 0,
+            Due: row.dueAmount ?? 0,
+          })),
+          emptyMessage: 'No invoices raised yet.',
+        },
+      ],
+    });
+  }
 
   private async load(): Promise<void> {
     this.loading.set(true);

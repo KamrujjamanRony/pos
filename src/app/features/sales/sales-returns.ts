@@ -5,8 +5,21 @@ import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
+import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
-import { addDays, clamp, currency, downloadCsv, money, round2, sum, today } from '../../core/util/format';
+import {
+  addDays,
+  amountInWords,
+  clamp,
+  currency,
+  dateRange,
+  downloadCsv,
+  money,
+  prettyDate,
+  round2,
+  sum,
+  today,
+} from '../../core/util/format';
 import { UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
@@ -26,16 +39,7 @@ interface ReturnLine {
 
 @Component({
   selector: 'app-sales-returns',
-  imports: [
-    UiPageHeader,
-    UiFilterBar,
-    UiTable,
-    UiButton,
-    UiModal,
-    UiField,
-    UiCombobox,
-    UiEmpty,
-  ],
+  imports: [UiPageHeader, UiFilterBar, UiTable, UiButton, UiModal, UiField, UiCombobox, UiEmpty],
   template: `
     <div class="space-y-4">
       <ui-page-header
@@ -64,6 +68,7 @@ interface ReturnLine {
         placeholder="Return number, customer, reason…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       />
 
       <ui-table
@@ -77,7 +82,22 @@ interface ReturnLine {
     </div>
 
     <ng-template #rowActions let-row>
-      <ui-button variant="ghost" size="icon" icon="trash" ariaLabel="Delete return" (pressed)="remove(row)" />
+      <div class="flex justify-end gap-1">
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="printer"
+          ariaLabel="Print credit note"
+          (pressed)="printNote(row)"
+        />
+        <ui-button
+          variant="ghost"
+          size="icon"
+          icon="trash"
+          ariaLabel="Delete return"
+          (pressed)="remove(row)"
+        />
+      </div>
     </ng-template>
 
     <ui-modal
@@ -89,9 +109,19 @@ interface ReturnLine {
       <div class="space-y-4">
         <div class="grid gap-4 sm:grid-cols-2">
           <ui-field label="Return date" for="sr-date" [required]="true">
-            <input id="sr-date" type="date" class="ctl" [value]="returnDate()" (change)="returnDate.set($any($event.target).value)" />
+            <input
+              id="sr-date"
+              type="date"
+              class="ctl"
+              [value]="returnDate()"
+              (change)="returnDate.set($any($event.target).value)"
+            />
           </ui-field>
-          <ui-field label="Original invoice" [required]="true" hint="Only invoices from the last 90 days are listed.">
+          <ui-field
+            label="Original invoice"
+            [required]="true"
+            hint="Only invoices from the last 90 days are listed."
+          >
             <ui-combobox
               [options]="invoices()"
               [labelOf]="invoiceLabel"
@@ -109,10 +139,26 @@ interface ReturnLine {
             <table class="w-full text-left text-[13px]">
               <thead class="bg-surface-2">
                 <tr>
-                  <th class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase">Item</th>
-                  <th class="w-24 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Sold</th>
-                  <th class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Returning</th>
-                  <th class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase">Amount</th>
+                  <th
+                    class="px-3 py-2 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Item
+                  </th>
+                  <th
+                    class="w-24 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Sold
+                  </th>
+                  <th
+                    class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Returning
+                  </th>
+                  <th
+                    class="w-28 px-3 py-2 text-right text-[11px] font-semibold tracking-wider text-faint uppercase"
+                  >
+                    Amount
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -143,7 +189,12 @@ interface ReturnLine {
 
           <div class="grid gap-4 sm:grid-cols-3">
             <ui-field label="Refund mode" for="sr-mode">
-              <select id="sr-mode" class="ctl" [value]="paymentMode()" (change)="onModeChange($any($event.target).value)">
+              <select
+                id="sr-mode"
+                class="ctl"
+                [value]="paymentMode()"
+                (change)="onModeChange($any($event.target).value)"
+              >
                 <option value="Cash">Cash</option>
                 <option value="Bank">Bank</option>
               </select>
@@ -160,7 +211,11 @@ interface ReturnLine {
                 }
               </select>
             </ui-field>
-            <ui-field label="Refund amount" for="sr-refund" [hint]="'Return value ' + currency(total())">
+            <ui-field
+              label="Refund amount"
+              for="sr-refund"
+              [hint]="'Return value ' + currency(total())"
+            >
               <input
                 id="sr-refund"
                 type="number"
@@ -172,7 +227,14 @@ interface ReturnLine {
           </div>
 
           <ui-field label="Reason" for="sr-remarks">
-            <input id="sr-remarks" type="text" class="ctl" [value]="remarks()" (input)="remarks.set($any($event.target).value)" placeholder="Damaged on arrival, wrong variant…" />
+            <input
+              id="sr-remarks"
+              type="text"
+              class="ctl"
+              [value]="remarks()"
+              (input)="remarks.set($any($event.target).value)"
+              placeholder="Damaged on arrival, wrong variant…"
+            />
           </ui-field>
         } @else {
           <ui-empty
@@ -204,6 +266,7 @@ export class SalesReturnsPage {
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly money = money;
   protected readonly currency = currency;
@@ -233,8 +296,20 @@ export class SalesReturnsPage {
   );
 
   protected readonly columns: Column<SalesReturn>[] = [
-    { key: 'returnNo', header: 'Return', value: (row) => row.returnNo, kind: 'mono', width: '130px' },
-    { key: 'returnDate', header: 'Date', value: (row) => row.returnDate, kind: 'date', width: '120px' },
+    {
+      key: 'returnNo',
+      header: 'Return',
+      value: (row) => row.returnNo,
+      kind: 'mono',
+      width: '130px',
+    },
+    {
+      key: 'returnDate',
+      header: 'Date',
+      value: (row) => row.returnDate,
+      kind: 'date',
+      width: '120px',
+    },
     {
       key: 'customerName',
       header: 'Customer',
@@ -249,8 +324,20 @@ export class SalesReturnsPage {
       align: 'right',
       hideOnMobile: true,
     },
-    { key: 'netAmount', header: 'Return value', value: (row) => row.netAmount ?? 0, kind: 'money', align: 'right' },
-    { key: 'refundAmount', header: 'Refunded', value: (row) => row.refundAmount, kind: 'money', align: 'right' },
+    {
+      key: 'netAmount',
+      header: 'Return value',
+      value: (row) => row.netAmount ?? 0,
+      kind: 'money',
+      align: 'right',
+    },
+    {
+      key: 'refundAmount',
+      header: 'Refunded',
+      value: (row) => row.refundAmount,
+      kind: 'money',
+      align: 'right',
+    },
   ];
 
   protected readonly filtered = computed(() => {
@@ -384,18 +471,83 @@ export class SalesReturnsPage {
     this.toast.success('Return deleted', `${row.returnNo} was removed.`);
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Return: row.returnNo,
+      Date: row.returnDate,
+      Customer: row.customerName,
+      Lines: row.details.length,
+      Value: row.netAmount,
+      Refunded: row.refundAmount,
+      Reason: row.remarks,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'sales-returns',
-      this.filtered().map((row) => ({
-        Return: row.returnNo,
-        Date: row.returnDate,
-        Customer: row.customerName,
-        Lines: row.details.length,
-        Value: row.netAmount,
-        Refunded: row.refundAmount,
-        Reason: row.remarks,
-      })),
-    );
+    downloadCsv('sales-returns', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Sales returns',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'sales-returns',
+      filters: [{ label: 'Search', value: this.search() || 'All records' }],
+      summary: this.tiles(),
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Lines: sum(rows, (row) => row.details.length),
+            Value: sum(rows, (row) => row.netAmount ?? 0),
+            Refunded: sum(rows, (row) => row.refundAmount),
+          },
+          emptyMessage: 'No returns in this window.',
+        },
+      ],
+    });
+  }
+
+  /** The credit note handed back to the customer. */
+  protected printNote(row: SalesReturn): void {
+    this.print.document({
+      title: 'Credit note — sales return',
+      documentNo: row.returnNo,
+      filename: `credit-note-${row.returnNo}`,
+      meta: [
+        { label: 'Date', value: prettyDate(row.returnDate) },
+        { label: 'Against invoice', value: row.salesEntryId ? `#${row.salesEntryId}` : '—' },
+        { label: 'Refund mode', value: row.paymentMode },
+      ],
+      parties: [{ heading: 'Returned by', lines: [row.customerName || 'Walk-in customer'] }],
+      section: {
+        columns: [
+          { key: 'Item', align: 'left' },
+          { key: 'Qty', align: 'right' },
+          { key: 'Rate', align: 'right' },
+          { key: 'Amount', align: 'right' },
+        ],
+        rows: row.details.map((line) => ({
+          Item: line.itemName ?? '—',
+          Qty: line.quantity,
+          Rate: line.salesPrice,
+          Amount: line.salesPrice * line.quantity,
+        })),
+        totals: {
+          Qty: sum(row.details, (line) => line.quantity),
+          Amount: sum(row.details, (line) => line.salesPrice * line.quantity),
+        },
+      },
+      totals: [
+        { label: 'Discount', value: `− ${currency(row.discount)}` },
+        { label: 'Credit value', value: currency(row.netAmount), strong: true },
+        { label: `Refunded (${row.paymentMode})`, value: currency(row.refundAmount) },
+      ],
+      amountInWords: amountInWords(row.netAmount),
+      note: row.remarks || undefined,
+      signatures: ['Customer', 'Authorised signature'],
+    });
   }
 }

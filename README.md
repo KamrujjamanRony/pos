@@ -53,10 +53,10 @@ src/app/
   core/
     models/       every request and response shape from the collection
     services/     Api (transport + envelope), PosApi (typed facade over all endpoints),
-                  Lookups (session-cached master data), ListStore, toast, theme, confirm
+                  Lookups (session-cached master data), ListStore, Print, toast, theme, confirm
     auth/         session, guards
     http/         auth / progress / error interceptors, and the in-memory backend
-    util/         formatting, dates, CSV export
+    util/         formatting, dates, CSV export, the print/PDF engine
   layout/         shell, sidebar, topbar, ⌘K command palette
   shared/         the UI kit — table, modal, combobox, charts, stat tiles, filter bar…
   features/       one folder per module
@@ -70,6 +70,27 @@ Three things keep ~40 screens from turning into ~40 copies of the same file:
   endpoints (Branch, CourierName, Department, Category, Unit, Origin, Brand, Area, Referred).
   `CashAccountsPage` and `PartyLedgerPage` do the same trick for their two variants each.
 - **`UiTable`** owns sorting, paging, loading, empty states and the row-action slot.
+
+## Printing
+
+Every screen can print, and every print is a PDF if you pick "Save as PDF" in the browser's own
+dialog — no export server, no PDF library in the bundle.
+
+- **Reports.** The printer button beside the CSV export on each filter bar prints exactly what is
+  on screen: same rows, same filters, plus a letterhead, the filters that produced the rows, the
+  headline figures and a totals line. The row shape is shared with the CSV export, so the two can
+  never drift apart.
+- **Documents.** Sales invoices, purchase entries, credit and debit notes, money receipts, payment
+  vouchers, transfer challans and party statements each print as a proper document — parties,
+  line items, a totals panel, the amount in words and signature lines. Invoice and purchase
+  editors print what is on the form, marked as a proforma until it is posted.
+- **Receipts.** The POS terminal prints an 80mm thermal receipt straight after a sale, or the same
+  sale as an A4 invoice.
+
+`core/util/print.ts` composes a standalone HTML document — its own stylesheet, `@page` box and
+column alignment, nothing inherited from the app — and `PrintService` prints it from a hidden
+iframe, so the app keeps its state and no popup is blocked. The letterhead (business name,
+address, phone, email, footer note) is editable in **Workspace settings** and stored per browser.
 
 ## Design
 
@@ -88,9 +109,11 @@ from the platform), live regions for toasts, and no nested interactive elements.
 
 ## Testing
 
-`npm test` runs two suites:
+`npm test` runs three suites:
 
 - **`core/http/mock-backend.spec.ts`** — the contract the UI depends on: login, master CRUD,
   invoice numbering and derived totals, stock reflecting a sale, the cash-book balance identity,
   outstanding-invoice filtering, report windowing, 404s.
+- **`core/util/print.spec.ts`** — what a bad printed page would fail: escaped values, aligned
+  number columns, a totals row under the right heading, the page box, and the amount in words.
 - **`app.spec.ts`** — renders the heaviest screens and signs in end to end through Signal Forms.

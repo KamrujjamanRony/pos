@@ -3,7 +3,16 @@ import type { TopItemRow } from '../../core/models';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
 import { PosApi } from '../../core/services/pos-api';
-import { addDays, downloadCsv, money, sum, today } from '../../core/util/format';
+import { PrintService } from '../../core/services/print';
+import {
+  addDays,
+  currency,
+  dateRange,
+  downloadCsv,
+  money,
+  sum,
+  today,
+} from '../../core/util/format';
 import { UiColumns, UiDonut, type Point } from '../../shared/ui/charts';
 import { UiFilterBar } from '../../shared/ui/filter-bar';
 import { UiSegmented } from '../../shared/ui/overlays';
@@ -38,9 +47,22 @@ type RankBy = 'Value' | 'Quantity';
       </ui-page-header>
 
       <div class="grid gap-4 sm:grid-cols-3">
-        <ui-stat label="Items sold" [value]="rows().length" format="integer" icon="tag" [series]="1" />
+        <ui-stat
+          label="Items sold"
+          [value]="rows().length"
+          format="integer"
+          icon="tag"
+          [series]="1"
+        />
         <ui-stat label="Units moved" [value]="units()" format="integer" icon="box" [series]="3" />
-        <ui-stat label="Revenue" [value]="revenue()" format="money" prefix="৳" icon="money" [series]="6" />
+        <ui-stat
+          label="Revenue"
+          [value]="revenue()"
+          format="money"
+          prefix="৳"
+          icon="money"
+          [series]="6"
+        />
       </div>
 
       <ui-filter-bar
@@ -52,10 +74,18 @@ type RankBy = 'Value' | 'Quantity';
         placeholder="Item name or code…"
         (refresh)="reload()"
         (exported)="exportCsv()"
+        (printed)="printPdf()"
       >
         <div class="w-32">
-          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="ti-top">Show top</label>
-          <select id="ti-top" class="ctl" [value]="top()" (change)="onTop($any($event.target).value)">
+          <label class="mb-1.5 block text-[12px] font-medium text-muted" for="ti-top"
+            >Show top</label
+          >
+          <select
+            id="ti-top"
+            class="ctl"
+            [value]="top()"
+            (change)="onTop($any($event.target).value)"
+          >
             <option [value]="10">10</option>
             <option [value]="20">20</option>
             <option [value]="50">50</option>
@@ -114,6 +144,7 @@ type RankBy = 'Value' | 'Quantity';
 export class TopItemsReportPage {
   private readonly api = inject(PosApi);
   private readonly lookups = inject(Lookups);
+  private readonly print = inject(PrintService);
 
   protected readonly search = signal('');
   protected readonly from = signal(addDays(today(), -29));
@@ -139,7 +170,13 @@ export class TopItemsReportPage {
       kind: 'strong',
       sub: (row) => this.categoryOf(row.itemId),
     },
-    { key: 'quantity', header: 'Units', value: (row) => row.quantity, kind: 'number', align: 'right' },
+    {
+      key: 'quantity',
+      header: 'Units',
+      value: (row) => row.quantity,
+      kind: 'number',
+      align: 'right',
+    },
     { key: 'amount', header: 'Revenue', value: (row) => row.amount, kind: 'money', align: 'right' },
     {
       key: 'share',
@@ -178,7 +215,9 @@ export class TopItemsReportPage {
   );
 
   protected readonly chartFormat = computed<(value: number) => string>(() =>
-    this.rankBy() === 'Value' ? (value: number) => money(value) : (value: number) => `${value} units`,
+    this.rankBy() === 'Value'
+      ? (value: number) => money(value)
+      : (value: number) => `${value} units`,
   );
 
   constructor() {
@@ -208,16 +247,46 @@ export class TopItemsReportPage {
     });
   }
 
+  /** One row shape, shared by the CSV export and the printed report. */
+  private reportRows(): Record<string, unknown>[] {
+    return this.filtered().map((row) => ({
+      Code: row.itemCode,
+      Item: row.itemName,
+      Category: this.categoryOf(row.itemId),
+      Units: row.quantity,
+      Revenue: row.amount,
+    }));
+  }
+
   protected exportCsv(): void {
-    downloadCsv(
-      'top-items',
-      this.filtered().map((row) => ({
-        Code: row.itemCode,
-        Item: row.itemName,
-        Category: this.categoryOf(row.itemId),
-        Units: row.quantity,
-        Revenue: row.amount,
-      })),
-    );
+    downloadCsv('top-items', this.reportRows());
+  }
+
+  protected printPdf(): void {
+    const rows = this.filtered();
+    this.print.report({
+      title: 'Top items',
+      subtitle: dateRange(this.from(), this.to()),
+      filename: 'top-items',
+      filters: [
+        { label: 'Showing', value: `Top ${this.top()}` },
+        { label: 'Search', value: this.search() || 'All items' },
+      ],
+      summary: [
+        { label: 'Items sold', value: String(this.rows().length) },
+        { label: 'Units moved', value: String(this.units()) },
+        { label: 'Revenue', value: currency(this.revenue()) },
+      ],
+      sections: [
+        {
+          rows: this.reportRows(),
+          totals: {
+            Units: sum(rows, (row) => row.quantity),
+            Revenue: sum(rows, (row) => row.amount),
+          },
+          emptyMessage: 'Nothing sold in this window.',
+        },
+      ],
+    });
   }
 }
