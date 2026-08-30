@@ -104,37 +104,12 @@ export const routes: Routes = [
           { path: '', pathMatch: 'full', redirectTo: 'items' },
           {
             path: 'items',
-            title: 'Items · Aurora POS',
+            title: 'Item registration · Aurora POS',
             loadComponent: () => import('./features/items/items').then((m) => m.ItemsPage),
           },
-          master('categories', {
-            resource: 'categories',
-            title: 'Categories',
-            singular: 'category',
-            subtitle: 'Groups the catalogue for reporting and stock filters.',
-            icon: 'layers',
-          }),
-          master('units', {
-            resource: 'units',
-            title: 'Units',
-            singular: 'unit',
-            subtitle: 'How each item is counted — pieces, boxes, sets.',
-            icon: 'box',
-          }),
-          master('brands', {
-            resource: 'brands',
-            title: 'Brands',
-            singular: 'brand',
-            subtitle: 'Manufacturers behind the items you stock.',
-            icon: 'sparkles',
-          }),
-          master('origins', {
-            resource: 'origins',
-            title: 'Origins',
-            singular: 'origin',
-            subtitle: 'Country of origin, printed on invoices where required.',
-            icon: 'pin',
-          }),
+          // Category, unit, brand and origin have no route of their own: Item
+          // registration edits them behind the setup passcode, and a standalone
+          // page would be a way around it.
         ],
       },
       {
@@ -169,7 +144,7 @@ export const routes: Routes = [
       },
       {
         path: 'suppliers',
-        title: 'Suppliers · Aurora POS',
+        title: 'Supplier registration · Aurora POS',
         loadComponent: () => import('./features/suppliers/suppliers').then((m) => m.SuppliersPage),
       },
       {
@@ -178,7 +153,7 @@ export const routes: Routes = [
           { path: '', pathMatch: 'full', redirectTo: 'list' },
           {
             path: 'list',
-            title: 'Customers · Aurora POS',
+            title: 'Customer registration · Aurora POS',
             loadComponent: () =>
               import('./features/customers/customers').then((m) => m.CustomersPage),
           },
@@ -258,10 +233,10 @@ export const routes: Routes = [
           },
           {
             path: 'at-bank',
-            title: 'Cash at bank · Aurora POS',
+            title: 'Bank entry · Aurora POS',
             data: {
               mode: 'Bank',
-              title: 'Cash at bank',
+              title: 'Bank entry',
               singular: 'bank account',
               subtitle: 'Bank accounts that receive takings and pay suppliers.',
               icon: 'bank',

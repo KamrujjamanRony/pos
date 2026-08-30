@@ -42,7 +42,7 @@ interface CustomerRow extends Customer {
     <div class="space-y-4">
       <ui-page-header
         icon="users"
-        title="Customers"
+        title="Customer registration"
         subtitle="Everyone you invoice, with what they still owe."
       >
         <a [class]="outlineButton" routerLink="/finance/customer-ledger">

@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormField, form, min, required, submit } from '@angular/forms/signals';
 import { firstValueFrom } from 'rxjs';
-import type { Item } from '../../core/models';
+import type { Item, NamedEntity } from '../../core/models';
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
@@ -9,6 +9,7 @@ import { PosApi } from '../../core/services/pos-api';
 import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { currency, downloadCsv, matches, money, round2 } from '../../core/util/format';
+import { LookupManager, type LookupResource } from '../masters/lookup-manager';
 import { UiAutofocus } from '../../shared/directives/motion';
 import { UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
@@ -30,14 +31,18 @@ import { UiTable, type Column } from '../../shared/ui/table';
     UiCombobox,
     FormField,
     UiAutofocus,
+    LookupManager,
   ],
   template: `
     <div class="space-y-4">
       <ui-page-header
         icon="tag"
-        title="Items"
+        title="Item registration"
         subtitle="The catalogue every sale, purchase and stock movement points at."
       >
+        <ui-button variant="outline" icon="layers" (pressed)="manage('categories')">
+          Master lists
+        </ui-button>
         <ui-button variant="primary" icon="plus" (pressed)="openCreate()">New item</ui-button>
       </ui-page-header>
 
@@ -131,43 +136,91 @@ import { UiTable, type Column } from '../../shared/ui/table';
         </ui-field>
 
         <ui-field label="Category">
-          <ui-combobox
-            [options]="lookups.categories()"
-            [labelOf]="nameOf"
-            [keyOf]="idOf"
-            [(value)]="categoryId"
-            placeholder="Choose a category"
-          />
+          <div class="flex gap-2">
+            <div class="min-w-0 flex-1">
+              <ui-combobox
+                [options]="lookups.categories()"
+                [labelOf]="nameOf"
+                [keyOf]="idOf"
+                [(value)]="categoryId"
+                placeholder="Choose a category"
+              />
+            </div>
+            <ui-button
+              variant="outline"
+              icon="plus"
+              ariaLabel="Add or edit categories"
+              (pressed)="manage('categories')"
+            >
+              Add
+            </ui-button>
+          </div>
         </ui-field>
 
         <ui-field label="Unit">
-          <ui-combobox
-            [options]="lookups.units()"
-            [labelOf]="nameOf"
-            [keyOf]="idOf"
-            [(value)]="unitId"
-            placeholder="Choose a unit"
-          />
+          <div class="flex gap-2">
+            <div class="min-w-0 flex-1">
+              <ui-combobox
+                [options]="lookups.units()"
+                [labelOf]="nameOf"
+                [keyOf]="idOf"
+                [(value)]="unitId"
+                placeholder="Choose a unit"
+              />
+            </div>
+            <ui-button
+              variant="outline"
+              icon="plus"
+              ariaLabel="Add or edit units"
+              (pressed)="manage('units')"
+            >
+              Add
+            </ui-button>
+          </div>
         </ui-field>
 
         <ui-field label="Brand">
-          <ui-combobox
-            [options]="lookups.brands()"
-            [labelOf]="nameOf"
-            [keyOf]="idOf"
-            [(value)]="brandId"
-            placeholder="Choose a brand"
-          />
+          <div class="flex gap-2">
+            <div class="min-w-0 flex-1">
+              <ui-combobox
+                [options]="lookups.brands()"
+                [labelOf]="nameOf"
+                [keyOf]="idOf"
+                [(value)]="brandId"
+                placeholder="Choose a brand"
+              />
+            </div>
+            <ui-button
+              variant="outline"
+              icon="plus"
+              ariaLabel="Add or edit brands"
+              (pressed)="manage('brands')"
+            >
+              Add
+            </ui-button>
+          </div>
         </ui-field>
 
         <ui-field label="Origin">
-          <ui-combobox
-            [options]="lookups.origins()"
-            [labelOf]="nameOf"
-            [keyOf]="idOf"
-            [(value)]="originId"
-            placeholder="Country of origin"
-          />
+          <div class="flex gap-2">
+            <div class="min-w-0 flex-1">
+              <ui-combobox
+                [options]="lookups.origins()"
+                [labelOf]="nameOf"
+                [keyOf]="idOf"
+                [(value)]="originId"
+                placeholder="Country of origin"
+              />
+            </div>
+            <ui-button
+              variant="outline"
+              icon="plus"
+              ariaLabel="Add or edit origins"
+              (pressed)="manage('origins')"
+            >
+              Add
+            </ui-button>
+          </div>
         </ui-field>
 
         <ui-field label="Reorder quantity" for="item-reorder" hint="Drives the reorder watchlist.">
@@ -227,6 +280,12 @@ import { UiTable, type Column } from '../../shared/ui/table';
         </ui-button>
       </div>
     </ui-modal>
+
+    <app-lookup-manager
+      [(open)]="managerOpen"
+      [(resource)]="managerResource"
+      (created)="onLookupCreated($event)"
+    />
   `,
   host: { class: 'block' },
 })
@@ -242,6 +301,9 @@ export class ItemsPage {
   protected readonly editorOpen = signal(false);
   protected readonly saving = signal(false);
   protected readonly editing = signal<Item | null>(null);
+
+  protected readonly managerOpen = signal(false);
+  protected readonly managerResource = signal<LookupResource>('categories');
 
   protected readonly categoryId = signal<number | string | null>(null);
   protected readonly unitId = signal<number | string | null>(null);
@@ -377,6 +439,23 @@ export class ItemsPage {
 
   protected reload(): void {
     void this.store.load();
+  }
+
+  /** Opens the passcode-protected editor for one of the four master lists. */
+  protected manage(resource: LookupResource): void {
+    this.managerResource.set(resource);
+    this.managerOpen.set(true);
+  }
+
+  /** A value added from the editor is selected straight away in the open form. */
+  protected onLookupCreated(event: { resource: LookupResource; entity: NamedEntity }): void {
+    const targets = {
+      categories: this.categoryId,
+      units: this.unitId,
+      brands: this.brandId,
+      origins: this.originId,
+    };
+    targets[event.resource].set(event.entity.id);
   }
 
   protected error(field: 'code' | 'name' | 'purchasePrice' | 'salesPrice'): string {

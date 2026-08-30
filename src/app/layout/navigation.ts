@@ -21,6 +21,18 @@ export const NAVIGATION: NavSection[] = [
   { label: 'Dashboard', icon: 'dashboard', path: '/dashboard' },
   { label: 'POS Terminal', icon: 'zap', path: '/pos' },
   {
+    // The four registers a new workspace fills in before it can trade. Category,
+    // unit, origin and brand are edited inside Item registration, behind a passcode.
+    label: 'Basic Setup',
+    icon: 'layers',
+    links: [
+      { label: 'Item registration', path: '/catalogue/items' },
+      { label: 'Supplier registration', path: '/suppliers' },
+      { label: 'Customer registration', path: '/customers/list' },
+      { label: 'Bank entry', path: '/cash/at-bank' },
+    ],
+  },
+  {
     label: 'Sales',
     icon: 'receipt',
     links: [
@@ -50,27 +62,14 @@ export const NAVIGATION: NavSection[] = [
     ],
   },
   {
-    label: 'Catalogue',
-    icon: 'tag',
-    links: [
-      { label: 'Items', path: '/catalogue/items' },
-      { label: 'Categories', path: '/catalogue/categories' },
-      { label: 'Units', path: '/catalogue/units' },
-      { label: 'Brands', path: '/catalogue/brands' },
-      { label: 'Origins', path: '/catalogue/origins' },
-    ],
-  },
-  {
     label: 'Customers',
     icon: 'users',
     links: [
-      { label: 'Customer list', path: '/customers/list' },
       { label: 'Opening balances', path: '/customers/openings' },
       { label: 'Areas', path: '/customers/areas' },
       { label: 'Referral sources', path: '/customers/referred' },
     ],
   },
-  { label: 'Suppliers', icon: 'inbox', path: '/suppliers' },
   {
     label: 'Receivable & payable',
     icon: 'wallet',
@@ -87,7 +86,6 @@ export const NAVIGATION: NavSection[] = [
     links: [
       { label: 'Cash book', path: '/cash/book' },
       { label: 'Cash in hand', path: '/cash/in-hand' },
-      { label: 'Cash at bank', path: '/cash/at-bank' },
       { label: 'Fund transfers', path: '/cash/transfers' },
     ],
   },

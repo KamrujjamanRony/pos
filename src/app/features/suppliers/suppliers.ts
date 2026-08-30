@@ -40,7 +40,7 @@ interface SupplierRow extends Supplier {
     <div class="space-y-4">
       <ui-page-header
         icon="inbox"
-        title="Suppliers"
+        title="Supplier registration"
         subtitle="Who you buy from, and what is still payable to them."
       >
         <a [class]="outlineButton" routerLink="/finance/supplier-ledger">
