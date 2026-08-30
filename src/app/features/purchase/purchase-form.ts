@@ -159,6 +159,11 @@ let lineSeed = 0;
                   <thead>
                     <tr class="border-b border-line bg-surface-2/40">
                       <th
+                        class="w-16 px-3 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
+                      >
+                        Item No.
+                      </th>
+                      <th
                         class="px-3 py-2.5 text-[11px] font-semibold tracking-wider text-faint uppercase"
                       >
                         Item
@@ -192,6 +197,7 @@ let lineSeed = 0;
                         class="stagger border-b border-line/70 last:border-0"
                         [style]="'--i:' + i"
                       >
+                        <td class="num px-3 py-2 text-faint">{{ i + 1 }}</td>
                         <td class="px-3 py-2">
                           <ui-combobox
                             [options]="lookups.items()"

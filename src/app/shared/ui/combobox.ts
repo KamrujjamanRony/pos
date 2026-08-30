@@ -18,9 +18,10 @@ import { UiIcon } from './icon';
 interface PanelBox {
   left: number;
   width: number;
-  /** Exactly one of `top` / `bottom` is set; the other stays unstyled. */
-  top: number | null;
-  bottom: number | null;
+  /** Exactly one is a length; the other must be an explicit `auto`, because
+   *  the user-agent sheet gives every `[popover]` an `inset: 0` to override. */
+  top: string;
+  bottom: string;
   maxHeight: number;
 }
 
@@ -48,11 +49,14 @@ const MAX_HEIGHT = 340;
  * dialog whose body scrolls, and an absolute popup is clipped by that
  * `overflow-y-auto` the moment the list is longer than the space beneath.
  *
- * Fixed offsets are not always viewport offsets: a transform, filter or
- * animation anywhere above the popup makes that ancestor the containing block,
- * and the modal panel's entry animation does exactly that. So the popup is
- * placed, measured once while still hidden, and the difference folded into
- * `adjust` — after which it tracks the trigger correctly wherever it lives.
+ * That is not enough on its own. A transform, filter or filling animation
+ * anywhere above the popup makes that ancestor its containing block — the
+ * modal panel's entry animation and a table row's `stagger` both do — and the
+ * popup is then clipped by every `overflow` between the two, and offset by the
+ * distance to it. So the popup is promoted to the top layer, where nothing
+ * clips it and offsets are the viewport's again. Where `showPopover` is
+ * missing, placement still self-corrects: it is measured once while hidden and
+ * the difference folded into `adjust`.
  */
 @Component({
   selector: 'ui-combobox',
@@ -99,13 +103,15 @@ const MAX_HEIGHT = 340;
       }
 
       @if (open()) {
+        <!-- m-0, p-0 and text-ink undo the user-agent [popover] defaults. -->
         <div
           #panelEl
-          class="animate-pop fixed z-50 flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-float"
+          popover="manual"
+          class="animate-pop fixed z-50 m-0 flex flex-col overflow-hidden rounded-xl border border-line bg-surface p-0 text-ink shadow-float"
           [style.left.px]="panel().left"
           [style.width.px]="panel().width"
-          [style.top.px]="panel().top"
-          [style.bottom.px]="panel().bottom"
+          [style.top]="panel().top"
+          [style.bottom]="panel().bottom"
           [style.max-height.px]="panel().maxHeight"
           [style.visibility]="placed() ? null : 'hidden'"
         >
@@ -197,8 +203,8 @@ export class UiCombobox<T> {
   protected readonly panel = signal<PanelBox>({
     left: 0,
     width: MIN_WIDTH,
-    top: 0,
-    bottom: null,
+    top: '0px',
+    bottom: 'auto',
     maxHeight: MAX_HEIGHT,
   });
   /** False for the one frame between rendering the popup and aligning it. */
@@ -273,7 +279,11 @@ export class UiCombobox<T> {
     // the browser paints — the only phase where its box can be trusted.
     afterRenderEffect(() => {
       const element = this.panelEl()?.nativeElement;
-      if (element && !this.placed()) this.align(element);
+      if (!element || this.placed()) return;
+      // Order matters: the top layer changes what the offsets resolve against,
+      // so promote first and measure the box it actually ends up with.
+      this.reveal(element);
+      this.align(element);
     });
   }
 
@@ -300,9 +310,23 @@ export class UiCombobox<T> {
       width,
       maxHeight: Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, up ? above : below)),
       left: left + this.adjust.x,
-      top: up ? null : rect.bottom + GAP + this.adjust.y,
-      bottom: up ? window.innerHeight - rect.top + GAP + this.adjust.bottom : null,
+      top: up ? 'auto' : `${rect.bottom + GAP + this.adjust.y}px`,
+      bottom: up ? `${window.innerHeight - rect.top + GAP + this.adjust.bottom}px` : 'auto',
     });
+  }
+
+  /**
+   * Promotes the popup to the top layer. Nothing there is clipped by an
+   * ancestor's `overflow`, and its offsets resolve against the viewport again —
+   * so this both un-clips the popup and zeroes out `adjust`.
+   */
+  private reveal(element: HTMLElement): void {
+    if (typeof element.showPopover !== 'function') return;
+    try {
+      element.showPopover();
+    } catch {
+      /* Already open, or the popover attribute is not honoured here. */
+    }
   }
 
   /**

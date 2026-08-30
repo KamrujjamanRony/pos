@@ -33,11 +33,18 @@ const rect = (box: Box): DOMRect =>
     toJSON: () => box,
   }) as DOMRect;
 
-/** Where the browser would actually paint the popup, given its inline offsets. */
+const offset = (value: string): number | null =>
+  value && value !== 'auto' ? parseFloat(value) : null;
+
+/**
+ * Where the browser would actually paint the popup, given its inline offsets.
+ * jsdom has no top layer, so this always resolves against `BLOCK` — the worst
+ * case, and the one the self-correction has to handle on its own.
+ */
 function paintedPanel(element: HTMLElement): DOMRect {
-  const left = parseFloat(element.style.left || '0');
-  const top = element.style.top ? parseFloat(element.style.top) : null;
-  const bottom = element.style.bottom ? parseFloat(element.style.bottom) : null;
+  const left = offset(element.style.left) ?? 0;
+  const top = offset(element.style.top);
+  const bottom = offset(element.style.bottom);
   return rect({
     left: BLOCK.left + left,
     top: top !== null ? BLOCK.top + top : BLOCK.top + BLOCK.height - (bottom ?? 0) - PANEL_HEIGHT,
@@ -111,8 +118,27 @@ describe('UiCombobox popup placement', () => {
     const { panel } = await open();
     const painted = paintedPanel(panel);
 
-    expect(panel.style.top).toBe('');
+    // `auto`, never blank: the popover user-agent sheet would otherwise supply
+    // a `top: 0` of its own and stretch the box between both edges.
+    expect(panel.style.top).toBe('auto');
     expect(painted.bottom).toBe(triggerBox.top - GAP);
+  });
+
+  it('escapes an ancestor that would clip it by entering the top layer', async () => {
+    const shown: string[] = [];
+    (HTMLElement.prototype as { showPopover?: () => void }).showPopover = function (
+      this: HTMLElement,
+    ) {
+      shown.push(this.getAttribute('popover') ?? '');
+    };
+
+    try {
+      const { panel } = await open();
+      expect(panel.getAttribute('popover')).toBe('manual');
+      expect(shown).toEqual(['manual']);
+    } finally {
+      delete (HTMLElement.prototype as { showPopover?: () => void }).showPopover;
+    }
   });
 
   it('never narrows below the readable minimum, nor overflows the viewport', async () => {
