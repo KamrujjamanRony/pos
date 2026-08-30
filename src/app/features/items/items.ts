@@ -449,13 +449,11 @@ export class ItemsPage {
 
   /** A value added from the editor is selected straight away in the open form. */
   protected onLookupCreated(event: { resource: LookupResource; entity: NamedEntity }): void {
-    const targets = {
-      categories: this.categoryId,
-      units: this.unitId,
-      brands: this.brandId,
-      origins: this.originId,
-    };
-    targets[event.resource].set(event.entity.id);
+    const id = event.entity.id;
+    if (event.resource === 'categories') this.categoryId.set(id);
+    if (event.resource === 'units') this.unitId.set(id);
+    if (event.resource === 'brands') this.brandId.set(id);
+    if (event.resource === 'origins') this.originId.set(id);
   }
 
   protected error(field: 'code' | 'name' | 'purchasePrice' | 'salesPrice'): string {

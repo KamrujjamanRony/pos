@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, model, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import type { Id, NamedEntity } from '../../core/models';
 import { Lookups } from '../../core/services/lookups';
@@ -9,8 +9,12 @@ import { UiButton } from '../../shared/ui/button';
 import { UiIcon } from '../../shared/ui/icon';
 import { UiModal } from '../../shared/ui/modal';
 
-/** The four item-facing master lists this editor covers. */
-export type LookupResource = 'categories' | 'units' | 'origins' | 'brands';
+/** The "name only" master lists this editor covers. */
+export type LookupResource = 'categories' | 'units' | 'origins' | 'brands' | 'areas' | 'referrals';
+
+/** The sets each registration screen exposes, in tab order. */
+export const ITEM_LOOKUPS: readonly LookupResource[] = ['categories', 'units', 'origins', 'brands'];
+export const CUSTOMER_LOOKUPS: readonly LookupResource[] = ['areas', 'referrals'];
 
 interface LookupMeta {
   singular: string;
@@ -44,9 +48,19 @@ const LISTS: Record<LookupResource, LookupMeta> = {
     hint: 'Manufacturers behind the items you stock.',
     placeholder: 'e.g. Aurora',
   },
+  areas: {
+    singular: 'area',
+    plural: 'Areas',
+    hint: 'Delivery zones used to group customers on the sales reports.',
+    placeholder: 'e.g. Gazipur',
+  },
+  referrals: {
+    singular: 'referral source',
+    plural: 'Referral sources',
+    hint: 'Where a customer came from — walk-in, page, referral.',
+    placeholder: 'e.g. Facebook page',
+  },
 };
-
-const TABS = Object.keys(LISTS) as LookupResource[];
 
 /** A change waiting for the passcode. Nothing reaches the API until it clears. */
 type Pending =
@@ -55,12 +69,13 @@ type Pending =
   | { kind: 'delete'; row: NamedEntity };
 
 /**
- * Editor for the category, unit, origin and brand lists, reachable only from
- * Item registration. The lists are readable, but every add, rename and delete
- * is held back until the setup passcode is entered for that one change.
+ * Editor for the "name only" master lists, reachable only from the registration
+ * screen that uses them — `resources` picks the set. The lists are readable,
+ * but every add, rename and delete is held back until the setup passcode is
+ * entered for that one change.
  *
- * It opens over the item form so a missing value can be added without losing
- * what is half typed, and keeps its feedback inside the panel: a modal
+ * It opens over the registration form so a missing value can be added without
+ * losing what is half typed, and keeps its feedback inside the panel: a modal
  * `<dialog>` sits in the top layer, where the app's toast and confirm hosts
  * would be painted underneath it.
  */
@@ -68,12 +83,7 @@ type Pending =
   selector: 'app-lookup-manager',
   imports: [UiModal, UiButton, UiIcon, UiAutofocus],
   template: `
-    <ui-modal
-      [(open)]="open"
-      size="md"
-      heading="Master lists"
-      subheading="Category, unit, origin and brand — shared by every item."
-    >
+    <ui-modal [(open)]="open" size="md" heading="Master lists" [subheading]="subheading()">
       @if (pending(); as action) {
         <div class="mx-auto max-w-sm py-4 text-center">
           <span
@@ -116,7 +126,7 @@ type Pending =
       } @else {
         <div class="space-y-4">
           <div class="flex flex-wrap gap-1.5" role="group" aria-label="Choose a master list">
-            @for (tab of tabs; track tab) {
+            @for (tab of resources(); track tab) {
               <button
                 type="button"
                 class="rounded-lg px-3 py-1.5 text-[13px] font-medium transition"
@@ -238,11 +248,13 @@ export class LookupManager {
   readonly open = model(false);
   /** Which list opens first; the tab strip writes the user's choice back. */
   readonly resource = model<LookupResource>('categories');
+  /** The tabs on offer — one registration screen never edits another's lists. */
+  readonly resources = input<readonly LookupResource[]>(ITEM_LOOKUPS);
+  readonly subheading = input('Category, unit, origin and brand — shared by every item.');
 
   /** Lets the caller select what was just added — the reason the panel exists. */
   readonly created = output<{ resource: LookupResource; entity: NamedEntity }>();
 
-  protected readonly tabs = TABS;
   protected readonly meta = computed(() => LISTS[this.resource()]);
   protected readonly rows = computed<NamedEntity[]>(() => this.lookups[this.resource()]());
 

@@ -163,20 +163,8 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./features/customers/customer-openings').then((m) => m.CustomerOpeningsPage),
           },
-          master('areas', {
-            resource: 'areas',
-            title: 'Areas',
-            singular: 'area',
-            subtitle: 'Delivery zones used to group customers.',
-            icon: 'pin',
-          }),
-          master('referred', {
-            resource: 'referrals',
-            title: 'Referral sources',
-            singular: 'source',
-            subtitle: 'Where a customer came from — walk-in, page, referral.',
-            icon: 'compass',
-          }),
+          // Area and referral source have no route of their own either:
+          // Customer registration edits them behind the setup passcode.
         ],
       },
       {
@@ -216,7 +204,8 @@ export const routes: Routes = [
           {
             path: 'book',
             title: 'Cash book · Aurora POS',
-            loadComponent: () => import('./features/cash-bank/cash-book').then((m) => m.CashBookPage),
+            loadComponent: () =>
+              import('./features/cash-bank/cash-book').then((m) => m.CashBookPage),
           },
           {
             path: 'in-hand',

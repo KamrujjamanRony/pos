@@ -12,9 +12,30 @@ import {
 import { UiAutofocus } from '../directives/motion';
 import { UiIcon } from './icon';
 
+/** Where the popup may sit, in viewport pixels. */
+interface PanelBox {
+  left: number;
+  width: number;
+  /** Exactly one of `top` / `bottom` is set; the other stays unstyled. */
+  top: number | null;
+  bottom: number | null;
+  maxHeight: number;
+}
+
+const GAP = 6;
+const EDGE = 8;
+const MIN_WIDTH = 224;
+const MIN_HEIGHT = 180;
+const MAX_HEIGHT = 340;
+
 /**
  * Type-ahead single-select. Used wherever a plain `<select>` would be painful:
  * items, customers, suppliers, accounts.
+ *
+ * The popup is `position: fixed` and measured against the trigger rather than
+ * absolutely positioned inside it. Half the comboboxes in the app sit in a
+ * dialog whose body scrolls, and an absolute popup is clipped by that
+ * `overflow-y-auto` the moment the list is longer than the space beneath.
  */
 @Component({
   selector: 'ui-combobox',
@@ -65,13 +86,18 @@ import { UiIcon } from './icon';
         <div class="fixed inset-0 z-40" (click)="close()"></div>
 
         <div
-          class="animate-pop absolute z-50 mt-1.5 w-full min-w-56 overflow-hidden rounded-xl border border-line bg-surface shadow-float"
-          [class.bottom-full]="dropUp()"
-          [class.mb-1.5]="dropUp()"
+          class="animate-pop fixed z-50 flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-float"
+          [style.left.px]="panel().left"
+          [style.width.px]="panel().width"
+          [style.top.px]="panel().top"
+          [style.bottom.px]="panel().bottom"
+          [style.max-height.px]="panel().maxHeight"
         >
           <div class="border-b border-line p-2">
             <div class="relative">
-              <span class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-faint">
+              <span
+                class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-faint"
+              >
                 <ui-icon name="search" [size]="15" />
               </span>
               <input
@@ -90,7 +116,11 @@ import { UiIcon } from './icon';
             </div>
           </div>
 
-          <ul [id]="listId" role="listbox" class="max-h-64 overflow-y-auto overscroll-contain py-1">
+          <ul
+            [id]="listId"
+            role="listbox"
+            class="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1"
+          >
             @for (option of filtered(); track keyOf()(option); let i = $index) {
               <li role="none">
                 <button
@@ -99,9 +129,7 @@ import { UiIcon } from './icon';
                   [id]="listId + '-option-' + i"
                   class="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] transition"
                   [class]="
-                    i === active()
-                      ? 'bg-brand-soft text-brand-text'
-                      : 'text-ink hover:bg-surface-2'
+                    i === active() ? 'bg-brand-soft text-brand-text' : 'text-ink hover:bg-surface-2'
                   "
                   [attr.aria-selected]="keyOf()(option) === value()"
                   (mouseenter)="active.set(i)"
@@ -150,6 +178,13 @@ export class UiCombobox<T> {
   protected readonly open = signal(false);
   protected readonly query = signal('');
   protected readonly active = signal(0);
+  protected readonly panel = signal<PanelBox>({
+    left: 0,
+    width: MIN_WIDTH,
+    top: 0,
+    bottom: null,
+    maxHeight: MAX_HEIGHT,
+  });
 
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
 
@@ -180,8 +215,43 @@ export class UiCombobox<T> {
   );
 
   constructor() {
-    effect(() => {
-      if (this.open()) this.active.set(0);
+    effect((onCleanup) => {
+      if (!this.open()) return;
+      this.active.set(0);
+      this.measure();
+      if (typeof window === 'undefined') return;
+      // A fixed popup is not clipped by a scrolling dialog body, but it does not
+      // travel with it either — so follow anything that moves underneath it.
+      // Scroll does not bubble, hence the capture-phase listener.
+      const reposition = () => this.measure();
+      document.addEventListener('scroll', reposition, true);
+      window.addEventListener('resize', reposition);
+      onCleanup(() => {
+        document.removeEventListener('scroll', reposition, true);
+        window.removeEventListener('resize', reposition);
+      });
+    });
+  }
+
+  /** Pins the popup to the trigger, flipping it up when it would not fit. */
+  private measure(): void {
+    const trigger = this.trigger()?.nativeElement;
+    if (!trigger || typeof window === 'undefined') return;
+
+    const rect = trigger.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - GAP - EDGE;
+    const above = rect.top - GAP - EDGE;
+    const up = (this.dropUp() && above >= MIN_HEIGHT) || (below < MIN_HEIGHT && above > below);
+
+    const width = Math.min(Math.max(rect.width, MIN_WIDTH), window.innerWidth - EDGE * 2);
+    const left = Math.min(Math.max(EDGE, rect.left), window.innerWidth - width - EDGE);
+
+    this.panel.set({
+      left,
+      width,
+      top: up ? null : rect.bottom + GAP,
+      bottom: up ? window.innerHeight - rect.top + GAP : null,
+      maxHeight: Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, up ? above : below)),
     });
   }
 

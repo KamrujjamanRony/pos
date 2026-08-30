@@ -1,7 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
-import type { Customer, PartyBalanceRow } from '../../core/models';
+import type { Customer, NamedEntity, PartyBalanceRow } from '../../core/models';
 import { ConfirmService } from '../../core/services/confirm';
 import { ListStore } from '../../core/services/list-store';
 import { Lookups } from '../../core/services/lookups';
@@ -9,6 +9,7 @@ import { PosApi } from '../../core/services/pos-api';
 import { PrintService } from '../../core/services/print';
 import { ToastService } from '../../core/services/toast';
 import { currency, downloadCsv, hueOf, initials, sum } from '../../core/util/format';
+import { CUSTOMER_LOOKUPS, LookupManager, type LookupResource } from '../masters/lookup-manager';
 import { UiAutofocus } from '../../shared/directives/motion';
 import { buttonClass, UiButton } from '../../shared/ui/button';
 import { UiCombobox } from '../../shared/ui/combobox';
@@ -37,6 +38,7 @@ interface CustomerRow extends Customer {
     UiStat,
     UiIcon,
     UiAutofocus,
+    LookupManager,
   ],
   template: `
     <div class="space-y-4">
@@ -49,6 +51,9 @@ interface CustomerRow extends Customer {
           <ui-icon name="list" [size]="16" />
           Ledger
         </a>
+        <ui-button variant="outline" icon="layers" (pressed)="manage('areas')">
+          Master lists
+        </ui-button>
         <ui-button variant="primary" icon="plus" (pressed)="openCreate()">New customer</ui-button>
       </ui-page-header>
 
@@ -188,22 +193,46 @@ interface CustomerRow extends Customer {
           />
         </ui-field>
         <ui-field label="Area">
-          <ui-combobox
-            [options]="lookups.areas()"
-            [labelOf]="nameOf"
-            [keyOf]="idOf"
-            [(value)]="areaId"
-            placeholder="Delivery zone"
-          />
+          <div class="flex gap-2">
+            <div class="min-w-0 flex-1">
+              <ui-combobox
+                [options]="lookups.areas()"
+                [labelOf]="nameOf"
+                [keyOf]="idOf"
+                [(value)]="areaId"
+                placeholder="Delivery zone"
+              />
+            </div>
+            <ui-button
+              variant="outline"
+              icon="plus"
+              ariaLabel="Add or edit areas"
+              (pressed)="manage('areas')"
+            >
+              Add
+            </ui-button>
+          </div>
         </ui-field>
         <ui-field label="Referred by">
-          <ui-combobox
-            [options]="lookups.referrals()"
-            [labelOf]="nameOf"
-            [keyOf]="idOf"
-            [(value)]="referredId"
-            placeholder="How did they find us?"
-          />
+          <div class="flex gap-2">
+            <div class="min-w-0 flex-1">
+              <ui-combobox
+                [options]="lookups.referrals()"
+                [labelOf]="nameOf"
+                [keyOf]="idOf"
+                [(value)]="referredId"
+                placeholder="How did they find us?"
+              />
+            </div>
+            <ui-button
+              variant="outline"
+              icon="plus"
+              ariaLabel="Add or edit referral sources"
+              (pressed)="manage('referrals')"
+            >
+              Add
+            </ui-button>
+          </div>
         </ui-field>
         <ui-field label="Address" for="c-address" class="sm:col-span-2">
           <textarea
@@ -229,6 +258,14 @@ interface CustomerRow extends Customer {
         </ui-button>
       </div>
     </ui-modal>
+
+    <app-lookup-manager
+      [(open)]="managerOpen"
+      [(resource)]="managerResource"
+      [resources]="customerLookups"
+      subheading="Area and referral source — shared by every customer."
+      (created)="onLookupCreated($event)"
+    />
   `,
   host: { class: 'block' },
 })
@@ -257,6 +294,22 @@ export class CustomersPage {
   protected readonly address = signal('');
   protected readonly areaId = signal<number | string | null>(null);
   protected readonly referredId = signal<number | string | null>(null);
+
+  protected readonly customerLookups = CUSTOMER_LOOKUPS;
+  protected readonly managerOpen = signal(false);
+  protected readonly managerResource = signal<LookupResource>('areas');
+
+  /** Opens the passcode-protected editor for areas and referral sources. */
+  protected manage(resource: LookupResource): void {
+    this.managerResource.set(resource);
+    this.managerOpen.set(true);
+  }
+
+  /** A value added from the editor is selected straight away in the open form. */
+  protected onLookupCreated(event: { resource: LookupResource; entity: NamedEntity }): void {
+    if (event.resource === 'areas') this.areaId.set(event.entity.id);
+    if (event.resource === 'referrals') this.referredId.set(event.entity.id);
+  }
 
   private readonly balances = signal<PartyBalanceRow[]>([]);
 

@@ -61,15 +61,7 @@ export const NAVIGATION: NavSection[] = [
       { label: 'Opening stock', path: '/inventory/openings' },
     ],
   },
-  {
-    label: 'Customers',
-    icon: 'users',
-    links: [
-      { label: 'Opening balances', path: '/customers/openings' },
-      { label: 'Areas', path: '/customers/areas' },
-      { label: 'Referral sources', path: '/customers/referred' },
-    ],
-  },
+  { label: 'Customer openings', icon: 'users', path: '/customers/openings' },
   {
     label: 'Receivable & payable',
     icon: 'wallet',
