@@ -1,8 +1,10 @@
 import {
   Component,
   ElementRef,
+  afterRenderEffect,
   computed,
   effect,
+  inject,
   input,
   model,
   output,
@@ -12,7 +14,7 @@ import {
 import { UiAutofocus } from '../directives/motion';
 import { UiIcon } from './icon';
 
-/** Where the popup may sit, in viewport pixels. */
+/** The offsets written onto the popup, already corrected for its origin. */
 interface PanelBox {
   left: number;
   width: number;
@@ -20,6 +22,15 @@ interface PanelBox {
   top: number | null;
   bottom: number | null;
   maxHeight: number;
+}
+
+/** Where the popup should end up, in viewport pixels. */
+interface Target {
+  left: number;
+  /** Set when the popup drops down: the viewport y of its top edge. */
+  top: number | null;
+  /** Set when it drops up: the viewport y of its bottom edge. */
+  bottomEdge: number | null;
 }
 
 const GAP = 6;
@@ -36,6 +47,12 @@ const MAX_HEIGHT = 340;
  * absolutely positioned inside it. Half the comboboxes in the app sit in a
  * dialog whose body scrolls, and an absolute popup is clipped by that
  * `overflow-y-auto` the moment the list is longer than the space beneath.
+ *
+ * Fixed offsets are not always viewport offsets: a transform, filter or
+ * animation anywhere above the popup makes that ancestor the containing block,
+ * and the modal panel's entry animation does exactly that. So the popup is
+ * placed, measured once while still hidden, and the difference folded into
+ * `adjust` — after which it tracks the trigger correctly wherever it lives.
  */
 @Component({
   selector: 'ui-combobox',
@@ -82,16 +99,15 @@ const MAX_HEIGHT = 340;
       }
 
       @if (open()) {
-        <!-- Click-away layer; sits under the panel but above the page. -->
-        <div class="fixed inset-0 z-40" (click)="close()"></div>
-
         <div
+          #panelEl
           class="animate-pop fixed z-50 flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-float"
           [style.left.px]="panel().left"
           [style.width.px]="panel().width"
           [style.top.px]="panel().top"
           [style.bottom.px]="panel().bottom"
           [style.max-height.px]="panel().maxHeight"
+          [style.visibility]="placed() ? null : 'hidden'"
         >
           <div class="border-b border-line p-2">
             <div class="relative">
@@ -185,8 +201,16 @@ export class UiCombobox<T> {
     bottom: null,
     maxHeight: MAX_HEIGHT,
   });
+  /** False for the one frame between rendering the popup and aligning it. */
+  protected readonly placed = signal(false);
 
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly trigger = viewChild<ElementRef<HTMLButtonElement>>('trigger');
+  private readonly panelEl = viewChild<ElementRef<HTMLElement>>('panelEl');
+
+  private target: Target = { left: 0, top: 0, bottomEdge: null };
+  /** Distance from the popup's containing block to the viewport, once known. */
+  private readonly adjust = { x: 0, y: 0, bottom: 0 };
 
   protected readonly filtered = computed(() => {
     const needle = this.query().trim().toLowerCase();
@@ -216,20 +240,40 @@ export class UiCombobox<T> {
 
   constructor() {
     effect((onCleanup) => {
-      if (!this.open()) return;
+      if (!this.open()) {
+        this.placed.set(false);
+        return;
+      }
       this.active.set(0);
       this.measure();
       if (typeof window === 'undefined') return;
+
       // A fixed popup is not clipped by a scrolling dialog body, but it does not
       // travel with it either — so follow anything that moves underneath it.
       // Scroll does not bubble, hence the capture-phase listener.
       const reposition = () => this.measure();
+      // Dismissing on an outside press beats a full-screen click-away layer:
+      // that layer is fixed too, so it only ever covered its own containing
+      // block, and a click on the page behind a dialog missed it entirely.
+      const dismiss = (event: Event) => {
+        const target = event.target as Node | null;
+        if (!target || !this.host.nativeElement.contains(target)) this.close();
+      };
       document.addEventListener('scroll', reposition, true);
+      document.addEventListener('pointerdown', dismiss, true);
       window.addEventListener('resize', reposition);
       onCleanup(() => {
         document.removeEventListener('scroll', reposition, true);
+        document.removeEventListener('pointerdown', dismiss, true);
         window.removeEventListener('resize', reposition);
       });
+    });
+
+    // Once per opening, after the popup's styles have hit the DOM and before
+    // the browser paints — the only phase where its box can be trusted.
+    afterRenderEffect(() => {
+      const element = this.panelEl()?.nativeElement;
+      if (element && !this.placed()) this.align(element);
     });
   }
 
@@ -246,13 +290,39 @@ export class UiCombobox<T> {
     const width = Math.min(Math.max(rect.width, MIN_WIDTH), window.innerWidth - EDGE * 2);
     const left = Math.min(Math.max(EDGE, rect.left), window.innerWidth - width - EDGE);
 
-    this.panel.set({
+    this.target = {
       left,
-      width,
       top: up ? null : rect.bottom + GAP,
-      bottom: up ? window.innerHeight - rect.top + GAP : null,
+      bottomEdge: up ? rect.top - GAP : null,
+    };
+
+    this.panel.set({
+      width,
       maxHeight: Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, up ? above : below)),
+      left: left + this.adjust.x,
+      top: up ? null : rect.bottom + GAP + this.adjust.y,
+      bottom: up ? window.innerHeight - rect.top + GAP + this.adjust.bottom : null,
     });
+  }
+
+  /**
+   * Corrects for a containing block that is not the viewport. The gap between
+   * asked-for and actual is constant while the popup is open, so folding it
+   * into `adjust` fixes this placement and every reposition after it.
+   */
+  private align(element: HTMLElement): void {
+    const actual = element.getBoundingClientRect();
+    const wantedTop = this.target.top ?? (this.target.bottomEdge ?? 0) - actual.height;
+    const dx = actual.left - this.target.left;
+    const dy = actual.top - wantedTop;
+
+    if (dx || dy) {
+      this.adjust.x -= dx;
+      this.adjust.y -= dy;
+      this.adjust.bottom += dy;
+      this.measure();
+    }
+    this.placed.set(true);
   }
 
   protected toggle(): void {
