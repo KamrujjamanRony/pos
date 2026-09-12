@@ -2,7 +2,7 @@ import { Service, computed, effect, signal } from '@angular/core';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 
-const STORAGE_KEY = 'aurora-pos.theme';
+const STORAGE_KEY = 'supersoft-pos.theme';
 
 function readStored(): ThemePreference {
   try {

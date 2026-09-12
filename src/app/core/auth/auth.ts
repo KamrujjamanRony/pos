@@ -5,7 +5,7 @@ import { Api } from '../services/api';
 import { hueOf } from '../util/format';
 import type { AuthTokens, LoginRequest, SessionUser } from '../models';
 
-const TOKEN_KEY = 'aurora-pos.session';
+const TOKEN_KEY = 'supersoft-pos.session';
 
 interface StoredSession {
   tokens: AuthTokens;
@@ -70,7 +70,7 @@ export class AuthService {
     await this.router.navigate(['/login']);
     if (refreshToken) {
       // Best-effort revoke; the local session is already gone either way.
-      this.api.post('Authentication/logout', { refreshToken }).subscribe({ error: () => {} });
+      this.api.post('Authentication/logout', { refreshToken }).subscribe({ error: () => { } });
     }
   }
 

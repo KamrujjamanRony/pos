@@ -35,7 +35,7 @@ import { environment } from '../../../environments/environment';
             <ui-icon name="zap" [size]="22" />
           </span>
           <div>
-            <p class="text-[17px] leading-tight font-semibold">Aurora POS</p>
+            <p class="text-[17px] leading-tight font-semibold">SuperSoft POS</p>
             <p class="text-[12.5px] text-white/70">Retail operations platform</p>
           </div>
         </div>

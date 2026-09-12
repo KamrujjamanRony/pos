@@ -17,7 +17,7 @@ import { NAVIGATION, type NavSection } from './navigation';
         <a
           routerLink="/dashboard"
           class="flex items-center gap-2.5 overflow-hidden rounded-lg"
-          [attr.aria-label]="'Aurora POS home'"
+          [attr.aria-label]="'SuperSoft POS home'"
         >
           <span
             class="grid size-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-brand to-accent text-white shadow-glow"
@@ -27,7 +27,7 @@ import { NAVIGATION, type NavSection } from './navigation';
           @if (!collapsed()) {
             <span class="animate-fade min-w-0">
               <span class="block truncate text-[15px] leading-tight font-semibold text-ink">
-                Aurora POS
+                SuperSoft POS
               </span>
               <span class="block truncate text-[11px] text-faint">Retail operations</span>
             </span>

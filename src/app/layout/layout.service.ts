@@ -3,7 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map, startWith } from 'rxjs';
 
-const KEY = 'aurora-pos.sidebar';
+const KEY = 'supersoft-pos.sidebar';
 
 function storedCollapsed(): boolean {
   try {

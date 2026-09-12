@@ -19,7 +19,7 @@ import { AppShell } from './layout/shell';
 describe('screens render', () => {
   beforeEach(() => {
     // jsdom has no scroll implementation; the shell resets scroll on navigation.
-    Element.prototype.scrollTo ??= () => {};
+    Element.prototype.scrollTo ??= () => { };
     resetMockDatabase();
     TestBed.configureTestingModule({
       providers: [
@@ -86,7 +86,7 @@ describe('screens render', () => {
   });
 
   it('signs in through the signal form and stores the session', async () => {
-    localStorage.removeItem('aurora-pos.session');
+    localStorage.removeItem('supersoft-pos.session');
     const fixture = TestBed.createComponent(LoginPage);
     await fixture.whenStable();
 

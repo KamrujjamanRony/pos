@@ -1,4 +1,4 @@
-# Aurora POS
+# SuperSoft POS
 
 A point-of-sale and back-office workspace for multi-branch retail, built on Angular 22
 (standalone, zoneless, signals throughout) and Tailwind CSS v4. Every screen maps onto an
@@ -32,15 +32,15 @@ Nothing else changes: the mock only ever sits at the end of the interceptor chai
 
 ## What is in it
 
-| Area | Screens |
-| --- | --- |
-| **Trading** | POS terminal, sales invoices (+ editor), sales returns, courier board, purchase entries (+ editor), purchase returns |
-| **Inventory** | Stock balance, stock ledger, stock transfers, opening stock |
-| **Catalogue** | Items, categories, units, brands, origins |
-| **Parties** | Customers, customer openings, areas, referral sources, suppliers |
-| **Money** | Receipts, payments, customer ledger, supplier ledger, cash book, cash in hand, cash at bank, fund transfers |
-| **Insight** | Dashboard, daily sales, gross profit, top items, staff & referral performance |
-| **Admin** | Employees (multipart, with documents), departments, branches, couriers, users & access, menu registry, image gallery, workspace settings |
+| Area          | Screens                                                                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Trading**   | POS terminal, sales invoices (+ editor), sales returns, courier board, purchase entries (+ editor), purchase returns                     |
+| **Inventory** | Stock balance, stock ledger, stock transfers, opening stock                                                                              |
+| **Catalogue** | Items, categories, units, brands, origins                                                                                                |
+| **Parties**   | Customers, customer openings, areas, referral sources, suppliers                                                                         |
+| **Money**     | Receipts, payments, customer ledger, supplier ledger, cash book, cash in hand, cash at bank, fund transfers                              |
+| **Insight**   | Dashboard, daily sales, gross profit, top items, staff & referral performance                                                            |
+| **Admin**     | Employees (multipart, with documents), departments, branches, couriers, users & access, menu registry, image gallery, workspace settings |
 
 The **POS terminal** is the fast path: search or scan into the catalogue grid, click to add,
 adjust quantities inline, pick a customer, discount by percent or flat amount, settle in cash or

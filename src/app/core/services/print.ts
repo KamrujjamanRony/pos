@@ -13,7 +13,7 @@ import {
   type PrintStamp,
 } from '../util/print';
 
-const LETTERHEAD_KEY = 'aurora-pos.letterhead';
+const LETTERHEAD_KEY = 'supersoft-pos.letterhead';
 
 /** The business details printed at the top of every page. Editable in settings. */
 export interface Letterhead {
