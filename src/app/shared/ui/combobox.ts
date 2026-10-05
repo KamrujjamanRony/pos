@@ -67,6 +67,7 @@ const MAX_HEIGHT = 340;
         type="button"
         #trigger
         role="combobox"
+        [attr.id]="inputId()"
         class="ctl flex items-center gap-2 text-left"
         [class.ctl-sm]="compact()"
         [class.pr-14]="showClear()"
@@ -185,6 +186,8 @@ export class UiCombobox<T> {
   readonly subOf = input<((option: T) => string) | null>(null);
 
   readonly value = model<number | string | null>(null);
+  /** Id for the trigger, so an external `<label for>` names the control. */
+  readonly inputId = input<string | null>(null);
   readonly placeholder = input('Select…');
   readonly searchPlaceholder = input('Type to search…');
   readonly disabled = input(false);

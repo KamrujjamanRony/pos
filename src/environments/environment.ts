@@ -8,7 +8,7 @@
 export const environment = {
   production: false,
   appName: 'SuperSoft POS',
-  apiBaseUrl: 'https://pp.amanstall.com/p',
+  apiBaseUrl: 'https://apibiopro.amanstall.com/p',
   useMockBackend: true,
   /** Simulated latency (ms) for the mock backend, so loading states are visible. */
   mockLatency: 220,

@@ -1,4 +1,15 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  Component,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  untracked,
+  viewChild,
+} from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import type { DiscountType, Item, PaymentMode, SalesDetail, SalesEntry } from '../../core/models';
@@ -50,17 +61,22 @@ interface CartLine extends SalesDetail {
     UiAutofocus,
   ],
   template: `
-    <div class="grid h-[calc(100dvh-7rem)] min-h-[36rem] gap-4 xl:grid-cols-[1fr_25rem]">
-      <!-- Catalogue -->
-      <section class="surface-card flex min-h-0 flex-col overflow-hidden">
-        <header class="flex flex-wrap items-center gap-3 border-b border-line p-3.5">
-          <div class="relative min-w-52 flex-1">
+    <div
+      class="xl:grid xl:h-[calc(100dvh-7rem)] xl:min-h-144 xl:grid-cols-[minmax(0,1fr)_25rem] xl:gap-4"
+    >
+      <!-- Catalogue. Below xl it grows with the page and the cart lives in a sheet. -->
+      <section class="surface-card flex flex-col xl:min-h-0 xl:overflow-hidden">
+        <header
+          class="sticky top-0 z-10 flex flex-wrap items-center gap-2.5 rounded-t-[inherit] border-b border-line bg-surface p-3 sm:gap-3 sm:p-3.5 xl:static"
+        >
+          <div class="relative min-w-52 flex-1 basis-full sm:basis-auto">
             <span class="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint">
               <ui-icon name="barcode" [size]="16" />
             </span>
             <input
               uiAutofocus
               type="search"
+              enterkeyhint="search"
               class="ctl pl-9"
               placeholder="Scan a code or search the catalogue…"
               [value]="search()"
@@ -69,15 +85,20 @@ interface CartLine extends SalesDetail {
               aria-label="Search catalogue"
             />
           </div>
-          <div class="flex items-center gap-1.5">
+          <div
+            class="flex max-w-full shrink-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain scrollbar-none"
+            role="group"
+            aria-label="Filter by category"
+          >
             <button
               type="button"
-              class="rounded-lg px-3 py-2 text-[13px] font-medium transition"
+              class="shrink-0 rounded-lg px-3 py-2 text-[13px] font-medium whitespace-nowrap transition"
               [class]="
                 category() === null
                   ? 'bg-brand text-white shadow-soft'
                   : 'bg-surface-2 text-muted hover:text-ink'
               "
+              [attr.aria-pressed]="category() === null"
               (click)="category.set(null)"
             >
               All
@@ -85,12 +106,13 @@ interface CartLine extends SalesDetail {
             @for (c of lookups.categories(); track c.id) {
               <button
                 type="button"
-                class="rounded-lg px-3 py-2 text-[13px] font-medium transition"
+                class="shrink-0 rounded-lg px-3 py-2 text-[13px] font-medium whitespace-nowrap transition"
                 [class]="
                   category() === c.id
                     ? 'bg-brand text-white shadow-soft'
                     : 'bg-surface-2 text-muted hover:text-ink'
                 "
+                [attr.aria-pressed]="category() === c.id"
                 (click)="category.set(c.id)"
               >
                 {{ c.name }}
@@ -99,32 +121,38 @@ interface CartLine extends SalesDetail {
           </div>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto p-3.5">
+        <div class="p-2.5 sm:p-3.5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto">
           @if (!lookups.ready()) {
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            <div
+              class="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-3 2xl:grid-cols-4"
+            >
               @for (n of [1, 2, 3, 4, 5, 6, 7, 8]; track n) {
                 <ui-skeleton [count]="1" [height]="96" />
               }
             </div>
           } @else if (visibleItems().length) {
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+            <div
+              class="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-3 2xl:grid-cols-4"
+            >
               @for (item of visibleItems(); track item.id; let i = $index) {
                 <button
                   type="button"
                   uiRipple
-                  class="stagger group surface-card flex flex-col items-start gap-2 p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-brand/45 hover:shadow-card"
+                  class="stagger group surface-card flex min-w-0 flex-col items-start gap-2 p-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-brand/45 hover:shadow-card sm:p-3"
                   [style]="'--i:' + i"
                   (click)="addToCart(item)"
                 >
-                  <div class="flex w-full items-start gap-2.5">
+                  <div class="flex w-full items-start gap-2 sm:gap-2.5">
                     <span
-                      class="grid size-10 shrink-0 place-items-center rounded-xl text-[12px] font-semibold text-white transition-transform duration-200 group-hover:scale-105"
+                      class="grid size-8 shrink-0 place-items-center rounded-lg text-[11px] font-semibold text-white transition-transform duration-200 group-hover:scale-105 sm:size-10 sm:rounded-xl sm:text-[12px]"
                       [style.background]="swatch(item.name)"
                     >
                       {{ short(item.name) }}
                     </span>
                     <span class="min-w-0 flex-1">
-                      <span class="block truncate text-[13.5px] font-medium text-ink">
+                      <span
+                        class="block truncate text-[13px] font-medium text-ink sm:text-[13.5px]"
+                      >
                         {{ item.name }}
                       </span>
                       <span class="block truncate text-[11.5px] text-faint">
@@ -132,8 +160,8 @@ interface CartLine extends SalesDetail {
                       </span>
                     </span>
                   </div>
-                  <div class="flex w-full items-center justify-between">
-                    <span class="num text-[15px] font-semibold text-ink">
+                  <div class="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                    <span class="num text-[14px] font-semibold text-ink sm:text-[15px]">
                       {{ currency(item.salesPrice) }}
                     </span>
                     @if (countOf(item.id); as count) {
@@ -153,14 +181,65 @@ interface CartLine extends SalesDetail {
         </div>
       </section>
 
-      <!-- Cart -->
-      <aside class="surface-card flex min-h-0 flex-col overflow-hidden">
-        <header class="flex items-center gap-3 border-b border-line p-3.5">
-          <span class="grid size-9 place-items-center rounded-xl bg-brand-soft text-brand-text">
+      <!-- Opens the cart sheet on phones and tablets; pinned to the bottom of the page. -->
+      <div class="sticky bottom-3 z-20 mt-3 xl:hidden">
+        <button
+          #cartTrigger
+          type="button"
+          class="flex w-full items-center gap-3 rounded-2xl bg-brand px-3.5 py-3 text-left text-white shadow-float transition active:scale-[0.99]"
+          aria-controls="pos-cart"
+          [attr.aria-expanded]="cartOpen()"
+          (click)="openCart()"
+        >
+          <span class="grid size-9 shrink-0 place-items-center rounded-xl bg-white/15">
+            <ui-icon name="cart" [size]="18" />
+          </span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-[14px] font-semibold">Review &amp; pay</span>
+            <span class="block truncate text-[12px]">
+              {{ lines().length }} {{ lines().length === 1 ? 'line' : 'lines' }} ·
+              {{ totalQuantity() }} units
+            </span>
+          </span>
+          <span class="num shrink-0 text-[16px] font-semibold">{{ currency(net()) }}</span>
+          <ui-icon name="chevronUp" [size]="16" class="shrink-0" />
+        </button>
+      </div>
+
+      @if (cartOpen()) {
+        <div
+          class="animate-fade fixed inset-0 z-65 bg-black/50 backdrop-blur-sm xl:hidden"
+          aria-hidden="true"
+          (click)="closeCart()"
+        ></div>
+      }
+
+      <!-- Cart: a bottom sheet on phones, a floating panel on tablets, a column on desktop.
+           Visibility transitions only on close, so the sheet is focusable the moment it opens. -->
+      <div
+        id="pos-cart"
+        class="surface-card fixed inset-x-0 bottom-0 z-70 flex max-h-[92dvh] flex-col overflow-hidden rounded-b-none duration-300 ease-out-expo sm:inset-x-auto sm:top-4 sm:right-4 sm:bottom-4 sm:max-h-none sm:w-104 sm:rounded-b-xl2 xl:visible xl:static xl:z-auto xl:min-h-0 xl:w-auto xl:translate-x-0 xl:translate-y-0 xl:transition-none"
+        [class]="
+          cartOpen()
+            ? 'visible transition-[translate]'
+            : 'invisible translate-y-full transition-[translate,visibility] sm:translate-x-[calc(100%+2rem)] sm:translate-y-0'
+        "
+        [attr.role]="cartOpen() ? 'dialog' : 'region'"
+        [attr.aria-modal]="cartOpen() || null"
+        aria-labelledby="pos-cart-title"
+      >
+        <header class="relative flex items-center gap-3 border-b border-line p-3.5 pt-5 sm:pt-3.5">
+          <span
+            class="absolute top-2 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-line sm:hidden"
+            aria-hidden="true"
+          ></span>
+          <span
+            class="grid size-9 shrink-0 place-items-center rounded-xl bg-brand-soft text-brand-text"
+          >
             <ui-icon name="cart" [size]="18" />
           </span>
           <div class="min-w-0 flex-1">
-            <p class="text-[14px] font-semibold text-ink">Current sale</p>
+            <p id="pos-cart-title" class="text-[14px] font-semibold text-ink">Current sale</p>
             <p class="text-[12px] text-muted">
               {{ lines().length }} {{ lines().length === 1 ? 'line' : 'lines' }} ·
               {{ totalQuantity() }} units
@@ -175,84 +254,100 @@ interface CartLine extends SalesDetail {
               (pressed)="clear()"
             />
           }
+          <button
+            #cartClose
+            type="button"
+            class="grid size-9 shrink-0 place-items-center rounded-xl text-muted transition hover:bg-surface-2 hover:text-ink xl:hidden"
+            aria-label="Close cart"
+            (click)="closeCart()"
+          >
+            <ui-icon name="close" [size]="16" />
+          </button>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto px-3.5 py-3">
-          @if (lines().length) {
-            <ul class="space-y-2">
-              @for (line of lines(); track line.key; let i = $index) {
-                <li
-                  class="rounded-xl border border-line bg-surface-2/60 p-2.5"
-                  style="animation: pop 0.3s var(--ease-spring) both"
-                >
-                  <div class="flex items-start gap-2">
-                    <div class="min-w-0 flex-1">
-                      <p class="truncate text-[13px] font-medium text-ink">{{ line.itemName }}</p>
-                      <p class="num text-[11.5px] text-faint">
-                        {{ currency(line.salesPrice) }} each
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      class="grid size-6 shrink-0 place-items-center rounded-lg text-faint transition hover:bg-neg-soft hover:text-neg"
-                      [attr.aria-label]="'Remove ' + line.itemName"
-                      (click)="removeLine(line.key)"
-                    >
-                      <ui-icon name="close" [size]="13" />
-                    </button>
-                  </div>
-
-                  <div class="mt-2 flex items-center justify-between gap-2">
-                    <div class="flex items-center rounded-lg border border-line bg-surface">
+        <!-- One scroller on small screens; on desktop only the lines scroll once space runs out. -->
+        <div class="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">
+          <div class="px-3.5 py-3 xl:min-h-40 xl:flex-1 xl:overflow-y-auto">
+            @if (lines().length) {
+              <ul class="space-y-2">
+                @for (line of lines(); track line.key; let i = $index) {
+                  <li
+                    class="rounded-xl border border-line bg-surface-2/60 p-2.5"
+                    style="animation: pop 0.3s var(--ease-spring) both"
+                  >
+                    <div class="flex items-start gap-2">
+                      <div class="min-w-0 flex-1">
+                        <p class="truncate text-[13px] font-medium text-ink">
+                          {{ line.itemName }}
+                        </p>
+                        <p class="num text-[11.5px] text-faint">
+                          {{ currency(line.salesPrice) }} each
+                        </p>
+                      </div>
                       <button
                         type="button"
-                        class="grid size-7 place-items-center rounded-l-lg text-muted transition hover:bg-surface-2 hover:text-ink"
-                        [attr.aria-label]="'Decrease ' + line.itemName"
-                        (click)="step(line.key, -1)"
+                        class="grid size-8 shrink-0 place-items-center rounded-lg text-faint transition hover:bg-neg-soft hover:text-neg xl:size-6"
+                        [attr.aria-label]="'Remove ' + line.itemName"
+                        (click)="removeLine(line.key)"
                       >
-                        <ui-icon name="minus" [size]="13" />
-                      </button>
-                      <input
-                        type="number"
-                        class="num w-11 border-x border-line bg-transparent py-1 text-center text-[13px] outline-none"
-                        [value]="line.quantity"
-                        [attr.aria-label]="line.itemName + ' quantity'"
-                        (change)="setQuantity(line.key, $any($event.target).value)"
-                      />
-                      <button
-                        type="button"
-                        class="grid size-7 place-items-center rounded-r-lg text-muted transition hover:bg-surface-2 hover:text-ink"
-                        [attr.aria-label]="'Increase ' + line.itemName"
-                        (click)="step(line.key, 1)"
-                      >
-                        <ui-icon name="plus" [size]="13" />
+                        <ui-icon name="close" [size]="13" />
                       </button>
                     </div>
-                    <span class="num text-[13.5px] font-semibold text-ink">
-                      {{ money(line.salesPrice * line.quantity) }}
-                    </span>
-                  </div>
-                </li>
-              }
-            </ul>
-          } @else {
-            <ui-empty
-              title="The cart is empty"
-              message="Pick an item on the left, or scan a barcode into the search box."
-              icon="cart"
-            />
-          }
-        </div>
 
-        <!-- Totals & payment -->
-        <div class="border-t border-line bg-surface-2/50 p-3.5">
-          <div class="space-y-2.5">
+                    <div class="mt-2 flex items-center justify-between gap-2">
+                      <div class="flex items-center rounded-lg border border-line bg-surface">
+                        <button
+                          type="button"
+                          class="grid size-9 place-items-center rounded-l-lg text-muted transition hover:bg-surface-2 hover:text-ink xl:size-7"
+                          [attr.aria-label]="'Decrease ' + line.itemName"
+                          (click)="step(line.key, -1)"
+                        >
+                          <ui-icon name="minus" [size]="13" />
+                        </button>
+                        <input
+                          type="number"
+                          inputmode="numeric"
+                          class="num w-12 self-stretch border-x border-line bg-transparent text-center text-[13px] outline-none xl:w-11"
+                          [value]="line.quantity"
+                          [attr.aria-label]="line.itemName + ' quantity'"
+                          (change)="setQuantity(line.key, $any($event.target).value)"
+                        />
+                        <button
+                          type="button"
+                          class="grid size-9 place-items-center rounded-r-lg text-muted transition hover:bg-surface-2 hover:text-ink xl:size-7"
+                          [attr.aria-label]="'Increase ' + line.itemName"
+                          (click)="step(line.key, 1)"
+                        >
+                          <ui-icon name="plus" [size]="13" />
+                        </button>
+                      </div>
+                      <span class="num text-[13.5px] font-semibold text-ink">
+                        {{ money(line.salesPrice * line.quantity) }}
+                      </span>
+                    </div>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <ui-empty
+                title="The cart is empty"
+                message="Pick an item from the catalogue, or scan a barcode into the search box."
+                icon="cart"
+              />
+            }
+          </div>
+
+          <!-- Totals & payment -->
+          <div class="mt-auto shrink-0 space-y-2.5 border-t border-line bg-surface-2/50 p-3.5">
             <div>
-              <label class="mb-1 block text-[11.5px] font-medium text-muted">Customer</label>
+              <label class="mb-1 block text-[11.5px] font-medium text-muted" for="pos-customer">
+                Customer
+              </label>
               <ui-combobox
+                inputId="pos-customer"
                 [options]="lookups.customers()"
                 [labelOf]="customerLabel"
-                [keyOf]="customerKey"
+                [keyOf]="idOf"
                 [subOf]="customerSub"
                 [(value)]="customerId"
                 [compact]="true"
@@ -262,7 +357,42 @@ interface CartLine extends SalesDetail {
             </div>
 
             <div class="grid grid-cols-2 gap-2">
-              <div>
+              <div class="min-w-0">
+                <label class="mb-1 block text-[11.5px] font-medium text-muted" for="pos-employee">
+                  Sold by
+                </label>
+                <ui-combobox
+                  inputId="pos-employee"
+                  [options]="lookups.employees()"
+                  [labelOf]="employeeLabel"
+                  [keyOf]="idOf"
+                  [(value)]="employeeId"
+                  [compact]="true"
+                  [dropUp]="true"
+                  placeholder="Employee"
+                  searchPlaceholder="Search employees…"
+                />
+              </div>
+              <div class="min-w-0">
+                <label class="mb-1 block text-[11.5px] font-medium text-muted" for="pos-referred">
+                  Referred by
+                </label>
+                <ui-combobox
+                  inputId="pos-referred"
+                  [options]="lookups.referrals()"
+                  [labelOf]="nameOf"
+                  [keyOf]="idOf"
+                  [(value)]="referredId"
+                  [compact]="true"
+                  [dropUp]="true"
+                  placeholder="None"
+                  searchPlaceholder="Search referrals…"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div class="min-w-0">
                 <label class="mb-1 block text-[11.5px] font-medium text-muted" for="pos-discount">
                   Discount
                 </label>
@@ -270,13 +400,14 @@ interface CartLine extends SalesDetail {
                   <input
                     id="pos-discount"
                     type="number"
-                    class="ctl ctl-sm rounded-r-none"
+                    inputmode="decimal"
+                    class="ctl ctl-sm min-w-0 rounded-r-none"
                     [value]="discount()"
                     (input)="discount.set(+$any($event.target).value || 0)"
                   />
                   <button
                     type="button"
-                    class="rounded-r-lg border border-l-0 border-line bg-surface px-2 text-[12px] font-semibold text-brand-text transition hover:bg-surface-2"
+                    class="min-w-9 shrink-0 rounded-r-lg border border-l-0 border-line bg-surface px-2 text-[12px] font-semibold text-brand-text transition hover:bg-surface-2"
                     [attr.aria-label]="'Discount type: ' + discountType()"
                     (click)="toggleDiscountType()"
                   >
@@ -284,13 +415,14 @@ interface CartLine extends SalesDetail {
                   </button>
                 </div>
               </div>
-              <div>
+              <div class="min-w-0">
                 <label class="mb-1 block text-[11.5px] font-medium text-muted" for="pos-courier">
                   Courier cost
                 </label>
                 <input
                   id="pos-courier"
                   type="number"
+                  inputmode="decimal"
                   class="ctl ctl-sm"
                   [value]="courierCost()"
                   (input)="courierCost.set(+$any($event.target).value || 0)"
@@ -299,7 +431,7 @@ interface CartLine extends SalesDetail {
             </div>
 
             <div class="grid grid-cols-2 gap-2">
-              <div>
+              <div class="min-w-0">
                 <label class="mb-1 block text-[11.5px] font-medium text-muted" for="pos-mode">
                   Mode
                 </label>
@@ -313,7 +445,7 @@ interface CartLine extends SalesDetail {
                   <option value="Bank">Bank</option>
                 </select>
               </div>
-              <div>
+              <div class="min-w-0">
                 <label class="mb-1 block text-[11.5px] font-medium text-muted" for="pos-account">
                   Account
                 </label>
@@ -364,6 +496,7 @@ interface CartLine extends SalesDetail {
                 <input
                   id="pos-received"
                   type="number"
+                  inputmode="decimal"
                   class="ctl"
                   [value]="received()"
                   (input)="received.set(+$any($event.target).value || 0)"
@@ -386,21 +519,24 @@ interface CartLine extends SalesDetail {
                 }
               </p>
             </div>
-
-            <ui-button
-              variant="primary"
-              size="lg"
-              [block]="true"
-              icon="checkCircle"
-              [disabled]="!lines().length"
-              [loading]="saving()"
-              (pressed)="checkout()"
-            >
-              Complete sale
-            </ui-button>
           </div>
         </div>
-      </aside>
+
+        <!-- Pinned, so the sale can be completed without scrolling the sheet to the end. -->
+        <div class="shrink-0 border-t border-line bg-surface-2/50 p-3.5 pb-[max(0.875rem,env(safe-area-inset-bottom))]">
+          <ui-button
+            variant="primary"
+            size="lg"
+            [block]="true"
+            icon="checkCircle"
+            [disabled]="!lines().length"
+            [loading]="saving()"
+            (pressed)="checkout()"
+          >
+            Complete sale
+          </ui-button>
+        </div>
+      </div>
     </div>
 
     <!-- Receipt confirmation -->
@@ -484,7 +620,8 @@ interface CartLine extends SalesDetail {
   `,
   host: {
     class: 'block',
-    '(document:keydown.escape)': 'lastInvoice.set(null)',
+    '(document:keydown.escape)': 'onEscape($event)',
+    '(window:resize)': 'onResize()',
   },
 })
 export class PosTerminalPage {
@@ -511,10 +648,20 @@ export class PosTerminalPage {
   protected readonly saving = signal(false);
   protected readonly lastInvoice = signal<SalesEntry | null>(null);
   private readonly lastLines = signal<CartLine[]>([]);
+  protected readonly employeeId = signal<number | string | null>(null);
+  protected readonly referredId = signal<number | string | null>(null);
+  /** The cart sheet on phones and tablets; on desktop the cart is always on screen. */
+  protected readonly cartOpen = signal(false);
 
+  private readonly cartTrigger = viewChild<ElementRef<HTMLElement>>('cartTrigger');
+  private readonly cartClose = viewChild<ElementRef<HTMLElement>>('cartClose');
+  private readonly injector = inject(Injector);
+
+  protected readonly idOf = (row: { id: number }) => row.id;
+  protected readonly nameOf = (row: { name: string }) => row.name;
   protected readonly customerLabel = (row: { customerName: string }) => row.customerName;
-  protected readonly customerKey = (row: { id: number }) => row.id;
   protected readonly customerSub = (row: { contactNumber: string }) => row.contactNumber;
+  protected readonly employeeLabel = (row: { employeeName: string }) => row.employeeName;
 
   constructor() {
     void this.lookups.ensure();
@@ -525,6 +672,41 @@ export class PosTerminalPage {
         this.paymentAccountId.set(accounts[0].id);
       }
     });
+    // Credit the sale to the first employee until the cashier picks someone else.
+    effect(() => {
+      const first = this.lookups.employees()[0];
+      if (first && untracked(this.employeeId) === null) {
+        this.employeeId.set(first.id);
+      }
+    });
+  }
+
+  /** Growing the window to desktop puts the cart back in its column, so drop the sheet. */
+  protected onResize(): void {
+    if (this.cartOpen() && matchMedia('(min-width: 80rem)').matches) {
+      this.cartOpen.set(false);
+    }
+  }
+
+  protected openCart(): void {
+    this.cartOpen.set(true);
+    afterNextRender(() => this.cartClose()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  protected closeCart(restoreFocus = true): void {
+    if (!this.cartOpen()) return;
+    this.cartOpen.set(false);
+    if (restoreFocus) this.cartTrigger()?.nativeElement.focus();
+  }
+
+  /** Escape dismisses the receipt first, then the cart sheet — unless a popup inside already used it. */
+  protected onEscape(event: Event): void {
+    if (event.defaultPrevented) return;
+    if (this.lastInvoice()) {
+      this.lastInvoice.set(null);
+    } else {
+      this.closeCart();
+    }
   }
 
   protected readonly accounts = computed(() =>
@@ -750,8 +932,8 @@ export class PosTerminalPage {
         invoiceDate: today(),
         branchId: this.lookups.branches()[0]?.id ?? 1,
         customerId: this.customerId() === null ? null : Number(this.customerId()),
-        byReferredId: null,
-        byEmployeeId: this.lookups.employees()[0]?.id ?? null,
+        byReferredId: this.referredId() === null ? null : Number(this.referredId()),
+        byEmployeeId: this.employeeId() === null ? null : Number(this.employeeId()),
         courierNameId: null,
         courierCost: this.courierCost(),
         courierCondition: 0,
@@ -774,7 +956,11 @@ export class PosTerminalPage {
       this.lastLines.set(lines);
       this.toast.success('Sale recorded', `${invoice.invoiceNo} · ${currency(invoice.netAmount)}`);
       this.clear();
+      // The receipt dialog takes over, so focus stays with it rather than the trigger.
+      this.closeCart(false);
       this.customerId.set(null);
+      // The same cashier rings up the next sale; the referral belonged to this customer.
+      this.referredId.set(null);
     } catch {
       /* surfaced by the error interceptor */
     } finally {
